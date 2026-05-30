@@ -9,12 +9,17 @@
 #include "hardware/display.h"
 #include "services/wifi_setup.h"
 #include "ui/radar_display.h"
+#include "ui/radar_range.h"
 
 namespace {
 
 bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
+
+bool g_boot_down = false;
+unsigned long g_boot_down_at = 0;
+bool g_boot_long_press_handled = false;
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -23,6 +28,45 @@ void showRadarIfConnected() {
   }
   ui::radarDisplayDraw();
   g_radar_visible = true;
+}
+
+void handleBootButton() {
+  if (wifiBootButtonPressed()) {
+    if (!g_boot_down) {
+      g_boot_down = true;
+      g_boot_down_at = millis();
+      g_boot_long_press_handled = false;
+    } else if (!g_boot_long_press_handled &&
+               millis() - g_boot_down_at >= config::kBootResetHoldMs) {
+      g_boot_long_press_handled = true;
+      Serial.println("BOOT held — resetting WiFi");
+      wifiResetCredentialsAndReboot();
+    }
+    return;
+  }
+
+  if (!g_boot_down) {
+    return;
+  }
+
+  const unsigned long held_ms = millis() - g_boot_down_at;
+  g_boot_down = false;
+
+  if (g_boot_long_press_handled) {
+    return;
+  }
+
+  if (held_ms < config::kBootTapMinMs || held_ms >= config::kBootResetHoldMs) {
+    return;
+  }
+
+  ui::radar::rangeNext();
+  Serial.printf("Range: %s (outer ~%.0f km)\n", ui::radar::rangeCurrent().ring3_label,
+                ui::radar::rangeCurrent().outer_km);
+
+  if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
+    ui::radarDisplayRefreshRange();
+  }
 }
 
 }  // namespace
@@ -34,6 +78,7 @@ void setup() {
   Serial.println("round-screen");
 
   displayInit();
+  ui::radar::rangeInit();
   wifiClearCredentialsIfBootHeld();
 
   if (wifiSetupConnect()) {
@@ -42,18 +87,7 @@ void setup() {
 }
 
 void loop() {
-  static unsigned long boot_press_start = 0;
-
-  if (wifiBootButtonPressed()) {
-    if (boot_press_start == 0) {
-      boot_press_start = millis();
-    } else if (millis() - boot_press_start >= config::kBootResetHoldMs) {
-      Serial.println("BOOT held — resetting WiFi");
-      wifiResetCredentialsAndReboot();
-    }
-  } else {
-    boot_press_start = 0;
-  }
+  handleBootButton();
 
   if (WiFi.status() != WL_CONNECTED) {
     if (g_radar_visible) {

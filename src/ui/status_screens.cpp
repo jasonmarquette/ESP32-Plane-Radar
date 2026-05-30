@@ -39,6 +39,7 @@ bool s_connecting_text_drawn = false;
 
 constexpr auto& kGfxTitle = fonts::FreeSans18pt7b;
 constexpr auto& kGfxBody = fonts::FreeSans12pt7b;
+constexpr auto& kGfxDetail = fonts::Font2;
 
 struct TextLine {
   const char* text;
@@ -100,12 +101,11 @@ void drawConnectingText() {
 
   tft.setFont(&kGfxTitle);
   const int title_h = tft.fontHeight();
-  tft.setFont(&kGfxBody);
-  const int body_h = tft.fontHeight();
+  tft.setFont(&kGfxDetail);
+  const int detail_h = tft.fontHeight();
 
-  const int total_h = title_h + kLineGap + body_h;
+  const int total_h = title_h + kLineGap + detail_h;
   const int block_top = (config::kDisplayHeight - total_h) / 2;
-  constexpr int kPanelPadX = 10;
   constexpr int kPanelPadY = 8;
   tft.fillRect(kCenterX - 110, block_top - kPanelPadY, 220, total_h + kPanelPadY * 2,
                config::kColorBlack);
@@ -114,9 +114,9 @@ void drawConnectingText() {
   const int title_y = block_top + title_h / 2;
   tft.drawString("Connecting", kCenterX, title_y);
 
-  tft.setFont(&kGfxBody);
-  const int body_y = block_top + title_h + kLineGap + body_h / 2;
-  tft.drawString(s_connecting_detail, kCenterX, body_y);
+  tft.setFont(&kGfxDetail);
+  const int detail_y = block_top + title_h + kLineGap + detail_h / 2;
+  tft.drawString(s_connecting_detail, kCenterX, detail_y);
 
   s_connecting_text_drawn = true;
 }
