@@ -1,5 +1,29 @@
 # Plane Radar
 
+## ILI9488 3.5" 480x320 Display Wiring
+
+This fork has been modified for a 3.5" ILI9488 SPI display using an ESP32-C3 Super Mini.
+
+| Display Pin | ESP32-C3 Super Mini |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| LED / BL | 3V3 |
+| CS | GPIO 1 |
+| RESET / RST | GPIO 0 |
+| DC / RS | GPIO 10 |
+| SDI / MOSI | GPIO 3 |
+| SCK | GPIO 4 |
+| SDO / MISO | Not connected |
+
+Display settings:
+
+- Driver: LovyanGFX `Panel_ILI9488`
+- Resolution: 480x320 landscape
+- Radar area: left 320x320
+- Info panel: right 160x320
+
+
 <img width="800" height="450" alt="plane-radar" src="https://github.com/user-attachments/assets/716d0992-dab8-47ba-8f1a-2aec7f607419" />
 
 **3D printed case (STL + assembly):** [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083) · **Firmware:** [Releases](https://github.com/MatixYo/ESP32-Plane-Radar/releases)
