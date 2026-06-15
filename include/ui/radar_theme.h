@@ -4,12 +4,12 @@
 
 namespace ui::radar {
 
-constexpr int kSize = 240;
-constexpr int kCenterX = kSize / 2;
-constexpr int kCenterY = kSize / 2;
+constexpr int kSize = 320;
+constexpr int kCenterX = 160;
+constexpr int kCenterY = 160;
 
 /** Outermost grid ring (inside edge labels). */
-constexpr int kGridOuterRadius = 107;
+constexpr int kGridOuterRadius = 150;
 
 /** N: offset from top edge (top_center, negative = up). */
 constexpr int kCardinalNorthOffsetY = -1;

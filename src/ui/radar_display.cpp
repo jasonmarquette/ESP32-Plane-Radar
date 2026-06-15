@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdlib>
 
+#include <WiFi.h>
+
 #include "config.h"
 #include "hardware/display.h"
 #include "hardware/display_font.h"
@@ -672,13 +674,131 @@ bool ensureFrameSprite() {
 // Double-buffered frame: composite the grid AND aircraft into the off-screen
 // sprite, then blit it to the panel in a single pushSprite. Because the panel
 // is updated in one pass, labels never show an erase/redraw gap — no flicker.
+
+void drawInfoPanel() {
+  constexpr int panel_x = 320;
+  constexpr int panel_y = 0;
+  constexpr int panel_w = 160;
+  constexpr int panel_h = 320;
+
+  const uint16_t bg = radar::kColorBackground;
+  const uint16_t line = radar::kColorGrid;
+  const uint16_t label = radar::kColorLabel;
+  const uint16_t value = tft.color565(120, 255, 255);
+  const uint16_t good = tft.color565(0, 255, 120);
+  const uint16_t bad = tft.color565(255, 80, 80);
+
+  tft.fillRect(panel_x, panel_y, panel_w, panel_h, bg);
+
+  // Vertical divider
+  tft.drawFastVLine(panel_x, 0, panel_h, line);
+
+  tft.setTextDatum(textdatum_t::top_left);
+  tft.setTextColor(label, bg);
+
+  int x = panel_x + 10;
+  int y = 8;
+
+  // Header
+  tft.setTextSize(2);
+  tft.setTextColor(value, bg);
+  tft.setCursor(x, y);
+  tft.print("Plane");
+  y += 24;
+
+  tft.setCursor(x, y);
+  tft.print("Radar");
+  y += 34;
+
+  tft.drawFastHLine(panel_x + 8, y, panel_w - 16, line);
+  y += 12;
+
+  // Aircraft count
+  tft.setTextSize(1);
+  tft.setTextColor(label, bg);
+  tft.setCursor(x, y);
+  tft.print("AIRCRAFT");
+  y += 14;
+
+  tft.setTextSize(2);
+  tft.setTextColor(value, bg);
+  tft.setCursor(x, y);
+  tft.print(services::adsb::aircraftCount());
+  y += 30;
+
+  // Range
+  tft.setTextSize(1);
+  tft.setTextColor(label, bg);
+  tft.setCursor(x, y);
+  tft.print("RANGE");
+  y += 14;
+
+  tft.setTextSize(2);
+  tft.setTextColor(value, bg);
+  tft.setCursor(x, y);
+  tft.print(radar::rangeCurrent().outer_km, 0);
+  tft.print(" km");
+  y += 30;
+
+  // Wi-Fi status
+  tft.setTextSize(1);
+  tft.setTextColor(label, bg);
+  tft.setCursor(x, y);
+  tft.print("WIFI");
+  y += 14;
+
+  tft.setTextSize(1);
+  if (WiFi.status() == WL_CONNECTED) {
+    tft.setTextColor(good, bg);
+    tft.setCursor(x, y);
+    tft.print("CONNECTED");
+    y += 14;
+
+    tft.setTextColor(value, bg);
+    tft.setCursor(x, y);
+    tft.print(WiFi.localIP());
+    y += 20;
+  } else {
+    tft.setTextColor(bad, bg);
+    tft.setCursor(x, y);
+    tft.print("OFFLINE");
+    y += 20;
+  }
+
+  // Location
+  tft.drawFastHLine(panel_x + 8, y, panel_w - 16, line);
+  y += 12;
+
+  tft.setTextSize(1);
+  tft.setTextColor(label, bg);
+  tft.setCursor(x, y);
+  tft.print("LAT");
+  y += 14;
+
+  tft.setTextColor(value, bg);
+  tft.setCursor(x, y);
+  tft.print(services::location::lat(), 4);
+  y += 22;
+
+  tft.setTextColor(label, bg);
+  tft.setCursor(x, y);
+  tft.print("LON");
+  y += 14;
+
+  tft.setTextColor(value, bg);
+  tft.setCursor(x, y);
+  tft.print(services::location::lon(), 4);
+}
+
+
 void renderFrame() {
-  drawStaticGrid(s_frame);  // opens its own DrawScope(s_frame)
+  drawStaticGrid(s_frame);
   {
     const DrawScope scope(s_frame);
     drawAircraft();
   }
   s_frame.pushSprite(0, 0);
+  drawInfoPanel();
   tft.setTextDatum(textdatum_t::top_left);
 }
 
@@ -697,6 +817,7 @@ void radarDisplayDraw() {
   const DrawScope scope(tft);
   drawStaticGrid(tft);
   drawAircraft();
+  drawInfoPanel();
   tft.setTextDatum(textdatum_t::top_left);
 }
 
