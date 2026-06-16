@@ -24,7 +24,9 @@ Display settings:
 - Info panel: right 160x320
 
 
-<img width="800" height="450" alt="plane-radar" src="https://github.com/user-attachments/assets/716d0992-dab8-47ba-8f1a-2aec7f607419" />
+## Screenshot
+
+![Plane Radar Pi running on the 3.5" 480x320 SPI Serial Resistive LCD Touch Panels TFT Display Module ILI9488 display](images/plane-radar-display.jpeg)
 
 **3D printed case (STL + assembly):** [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083) · **Firmware:** [Releases](https://github.com/MatixYo/ESP32-Plane-Radar/releases)
 
