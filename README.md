@@ -28,9 +28,9 @@ Display settings:
 
 ![Plane Radar running on the 3.5" 480x320 SPI Serial Resistive LCD Touch Panels TFT Display Module ILI9488 display](images/radar-screen.jpeg)
 
-**3D printed case (STL + assembly):** [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083) · **Firmware:** [Releases](https://github.com/MatixYo/ESP32-Plane-Radar/releases)
 
-Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows a circular **ADS-B radar** around your configured location, with **WiFiManager** for first-time setup.
+
+Firmware for an **ESP32-C3 Super Mini** and a **ILI9488 3.5" 480x320 Display** display (480×3200). Shows a **ADS-B radar** around your configured location, with **WiFiManager** for first-time setup.
 
 ## What it does
 
@@ -48,11 +48,20 @@ After Wi‑Fi is saved, the device reconnects automatically; the radar runs in t
 
 During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
 
+## Flash the firmware
+Download the release .bin from GitHub Releases.
+Put the board in download mode: unplug USB, hold BOOT, plug USB in, wait 2 seconds, release BOOT. If that fails, hold BOOT, tap RESET, release BOOT.
+Open https://web.esphome.io/ in Chrome or Edge.
+Choose Install (you do not need to set up a new ESPHome device).
+Select your serial port and the downloaded .bin.
+When it finishes, unplug, wait a few seconds, plug back in without holding BOOT.
+
+
 ## Wi‑Fi setup portal
 
 **First-time setup** (no saved Wi‑Fi):
 
-1. Connect to **`PlaneRadar-Setup`**
+1. Connect to **`PlaneRadar-Setup`** wifi on your home network.
 2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the yellow setup screen; captive portal may open automatically
 3. Set home Wi‑Fi, then save
 
