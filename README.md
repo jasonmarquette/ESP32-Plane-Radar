@@ -49,12 +49,12 @@ After Wi‑Fi is saved, the device reconnects automatically; the radar runs in t
 During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
 
 ## Flash the firmware
-Download the release .bin from GitHub Releases.
-Put the board in download mode: unplug USB, hold BOOT, plug USB in, wait 2 seconds, release BOOT. If that fails, hold BOOT, tap RESET, release BOOT.
-Open https://web.esphome.io/ in Chrome or Edge.
-Choose Install (you do not need to set up a new ESPHome device).
-Select your serial port and the downloaded .bin.
-When it finishes, unplug, wait a few seconds, plug back in without holding BOOT.
+1. Download the release .bin from GitHub Releases.
+2. Put the board in download mode: unplug USB, hold BOOT, plug USB in, wait 2 seconds, release BOOT. If that fails, hold BOOT, tap RESET, release BOOT.
+3. Open https://web.esphome.io/ in Chrome or Edge.
+4. Choose Install (you do not need to set up a new ESPHome device).
+5. Select your serial port and the downloaded .bin.
+6. When it finishes, unplug, wait a few seconds, plug back in without holding BOOT.
 
 
 ## Wi‑Fi setup portal
