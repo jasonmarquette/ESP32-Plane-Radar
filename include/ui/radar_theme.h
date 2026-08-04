@@ -62,32 +62,36 @@ constexpr int kBeyondRingScreenMarginPx = 2;
 /** Target cap height (px) for aircraft tags (bold, slightly above scale label). */
 constexpr int kAircraftTagLabelHeightPx = 13;
 
-/** RGB565 palette targets (applied in initPalette). */
-constexpr uint8_t kBgR = 4;
-constexpr uint8_t kBgG = 10;
-constexpr uint8_t kBgB = 28;
-constexpr uint8_t kGridR = 16;
-constexpr uint8_t kGridG = 100;
-constexpr uint8_t kGridB = 32;
-constexpr uint8_t kAircraftR = 255;
-constexpr uint8_t kAircraftG = 0;
-constexpr uint8_t kAircraftB = 0;
-constexpr uint8_t kTrackR = 255;
-constexpr uint8_t kTrackG = 0;
-constexpr uint8_t kTrackB = 255;
-constexpr uint8_t kTagTypeR = 255;
-constexpr uint8_t kTagTypeG = 200;
-constexpr uint8_t kTagTypeB = 0;
-constexpr uint8_t kTagAltR = 90;
-constexpr uint8_t kTagAltG = 200;
-constexpr uint8_t kTagAltB = 255;
-constexpr uint8_t kRunwayR = 56;
-constexpr uint8_t kRunwayG = 150;
-constexpr uint8_t kRunwayB = 170;
-/** Lighter teal for ICAO labels (vs runway lines). */
-constexpr uint8_t kRunwayLabelR = 110;
-constexpr uint8_t kRunwayLabelG = 210;
-constexpr uint8_t kRunwayLabelB = 230;
+/**
+ * Aviation Light palette. The static map supplies pale water, parks, terrain,
+ * and minimal roads. These colors keep the radar overlay readable without
+ * overpowering the geographic context.
+ */
+constexpr uint8_t kBgR = 241;
+constexpr uint8_t kBgG = 243;
+constexpr uint8_t kBgB = 238;
+constexpr uint8_t kGridR = 74;
+constexpr uint8_t kGridG = 119;
+constexpr uint8_t kGridB = 142;
+constexpr uint8_t kAircraftR = 220;
+constexpr uint8_t kAircraftG = 38;
+constexpr uint8_t kAircraftB = 38;
+constexpr uint8_t kTrackR = 150;
+constexpr uint8_t kTrackG = 45;
+constexpr uint8_t kTrackB = 170;
+constexpr uint8_t kTagTypeR = 20;
+constexpr uint8_t kTagTypeG = 92;
+constexpr uint8_t kTagTypeB = 112;
+constexpr uint8_t kTagAltR = 56;
+constexpr uint8_t kTagAltG = 66;
+constexpr uint8_t kTagAltB = 74;
+constexpr uint8_t kRunwayR = 0;
+constexpr uint8_t kRunwayG = 112;
+constexpr uint8_t kRunwayB = 122;
+/** Darker teal for ICAO labels over a light map. */
+constexpr uint8_t kRunwayLabelR = 0;
+constexpr uint8_t kRunwayLabelG = 76;
+constexpr uint8_t kRunwayLabelB = 86;
 
 extern uint16_t kColorBackground;
 extern uint16_t kColorGrid;
