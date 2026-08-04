@@ -12,6 +12,7 @@
 #include "hardware/display.h"
 #include "hardware/display_font.h"
 #include "services/adsb_client.h"
+#include "services/map_background.h"
 #include "services/radar_location.h"
 #include "ui/radar_range.h"
 #include "ui/radar_theme.h"
@@ -640,7 +641,7 @@ void drawScaleLabel(int cx, int cy, int outer_radius) {
 }
 
 template <typename Gfx>
-void drawStaticGrid(Gfx& gfx) {
+void drawStaticGrid(Gfx& gfx, bool background_ready = false) {
   initLabelMetrics();
   const DrawScope scope(gfx);
   displayFontEnsureLoaded(gfx);
@@ -648,7 +649,9 @@ void drawStaticGrid(Gfx& gfx) {
   const int cy = radar::kCenterY;
   const int grid_r = radar::kGridOuterRadius;
 
-  gfx.fillScreen(radar::kColorBackground);
+  if (!background_ready) {
+    gfx.fillScreen(radar::kColorBackground);
+  }
   drawRings(cx, cy, grid_r);
   drawCrosshairs(cx, cy, grid_r, radar::kColorGrid);
   initPalette();
@@ -789,7 +792,10 @@ void drawInfoPanel() {
 
 
 void renderFrame() {
-  drawStaticGrid(s_frame);
+  const bool map_ready = services::map_background::draw(
+      s_frame, services::location::lat(), services::location::lon(),
+      radar::rangeCurrent().outer_km);
+  drawStaticGrid(s_frame, map_ready);
   {
     const DrawScope scope(s_frame);
     drawAircraft();
