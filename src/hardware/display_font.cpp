@@ -27,8 +27,7 @@ bool vlwActiveOn(const lgfx::LGFXBase& gfx) {
 }  // namespace
 
 bool displayFontInit() {
-  s_vlw_loaded = vlwDataLen() > 0 &&
-                 tft.loadFont(vlwData(), lgfx::IFont::font_type_t::ft_vlw);
+  s_vlw_loaded = vlwDataLen() > 0 && tft.loadFont(vlwData());
   if (!s_vlw_loaded) {
     Serial.println("Smooth font load failed — using bitmap fallback");
   }
@@ -44,7 +43,7 @@ bool displayFontEnsureLoaded(lgfx::LGFXBase& gfx) {
   if (vlwActiveOn(gfx)) {
     return true;
   }
-  return gfx.loadFont(vlwData(), lgfx::IFont::font_type_t::ft_vlw);
+  return gfx.loadFont(vlwData());
 }
 
 void displayFontSetSmoothSize(lgfx::LGFXBase& gfx, float size) {
