@@ -14,6 +14,7 @@
 #endif
 
 #include "config.h"
+#include "services/map_background.h"
 #include "services/radar_location.h"
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
@@ -54,7 +55,6 @@ void initBootButton() {
 
 namespace {
 
-/** Separate from planeradar prefs (rangeInit) to avoid NVS handle conflicts. */
 constexpr char kWifiPrefsNamespace[] = "wifi";
 constexpr char kPrefsForcePortalKey[] = "portal";
 
@@ -68,13 +68,19 @@ void stopLanWebPortal();
 bool wifiLinkUp();
 
 constexpr int kCoordParamLen = 20;
+constexpr int kMapKeyParamLen = 96;
 constexpr char kCoordInputAttrs[] =
     " type=\"number\" step=\"0.000001\"";
+constexpr char kMapKeyInputAttrs[] =
+    " type=\"password\" autocomplete=\"off\" maxlength=\"96\"";
 
 WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
+                                 kCoordParamLen, kCoordInputAttrs);
 WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
+                                 kCoordParamLen, kCoordInputAttrs);
+WiFiManagerParameter s_param_map_key(
+    "maptiler_key", "MapTiler API key (blank disables map)", "",
+    kMapKeyParamLen, kMapKeyInputAttrs);
 
 char s_miles_checkbox_attrs[32] = "type=\"checkbox\"";
 WiFiManagerParameter s_param_miles("use_miles", "Display distances in miles", "T", 2,
@@ -91,19 +97,32 @@ void refreshPortalParamDefaults() {
   snprintf(lon_buf, sizeof(lon_buf), "%.6f", services::location::lon());
   s_param_lat.setValue(lat_buf, kCoordParamLen);
   s_param_lon.setValue(lon_buf, kCoordParamLen);
-  snprintf(s_miles_checkbox_attrs, sizeof(s_miles_checkbox_attrs), "type=\"checkbox\"%s",
-           ui::radar::useMiles() ? " checked" : "");
+  s_param_map_key.setValue(services::map_background::apiKey(),
+                           kMapKeyParamLen);
+
+  snprintf(s_miles_checkbox_attrs, sizeof(s_miles_checkbox_attrs),
+           "type=\"checkbox\"%s", ui::radar::useMiles() ? " checked" : "");
   s_param_miles.setValue("T", 2);
+
   snprintf(s_runways_checkbox_attrs, sizeof(s_runways_checkbox_attrs),
            "type=\"checkbox\"%s", ui::radar::showRunways() ? " checked" : "");
   s_param_runways.setValue("T", 2);
 }
 
 void onPortalParamsSaved() {
+  const double old_lat = services::location::lat();
+  const double old_lon = services::location::lon();
+
   if (!services::location::saveFromStrings(s_param_lat.getValue(),
-                                           s_param_lon.getValue())) {
+                                            s_param_lon.getValue())) {
     Serial.println("Invalid lat/lon in portal — keeping previous location");
   }
+
+  services::map_background::saveApiKey(s_param_map_key.getValue());
+  if (old_lat != services::location::lat() || old_lon != services::location::lon()) {
+    services::map_background::invalidate();
+  }
+
   ui::radar::saveMilesFromPortal(s_param_miles.getValue());
   ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
 }
@@ -112,6 +131,7 @@ void attachPortalParams(WiFiManager& wm) {
   refreshPortalParamDefaults();
   wm.addParameter(&s_param_lat);
   wm.addParameter(&s_param_lon);
+  wm.addParameter(&s_param_map_key);
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
   wm.setSaveParamsCallback(onPortalParamsSaved);
@@ -190,8 +210,9 @@ void resetWifiCredentials() {
   markForceConfigPortal();
   eraseWifiCredentials();
   services::location::clear();
+  services::map_background::clear();
   ui::radar::unitsReset();
-  Serial.println("WiFi credentials, location, and units cleared");
+  Serial.println("WiFi credentials, location, units, and map key cleared");
 }
 
 void onConfigPortalApStarted(WiFiManager*) {
@@ -304,12 +325,10 @@ bool tryConnectWithUi(const String& ssid, const String& pass, bool show_ui) {
     }
 
     startStaConnect(ssid, pass);
-
     if (waitForLinkWithUi(ui_ssid, config::kWifiConnectAttemptMs)) {
       return true;
     }
   }
-
   return false;
 }
 
@@ -323,8 +342,7 @@ bool connectSavedNetwork(bool show_ui) {
   if (ssid.length() == 0) {
     return false;
   }
-  const String pass = s_wm.getWiFiPass();
-  return tryConnectWithUi(ssid, pass, show_ui);
+  return tryConnectWithUi(ssid, s_wm.getWiFiPass(), show_ui);
 }
 
 bool openConfigPortal() {
@@ -470,11 +488,9 @@ bool wifiSetupConnect() {
     return true;
   }
 
-  if (storedWifiCredentials()) {
-    Serial.println("Saved WiFi could not connect — opening setup portal");
-  } else {
-    Serial.println("No saved WiFi — opening setup portal");
-  }
+  Serial.println(storedWifiCredentials()
+                     ? "Saved WiFi could not connect — opening setup portal"
+                     : "No saved WiFi — opening setup portal");
 
   if (openConfigPortal() && wifiLinkUp()) {
     WiFi.setAutoReconnect(true);
