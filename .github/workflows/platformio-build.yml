@@ -1,0 +1,48 @@
+name: PlatformIO Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -e supermini
+
+      - name: Collect firmware files
+        if: success()
+        run: |
+          mkdir -p firmware-artifacts
+          find .pio/build/supermini -maxdepth 1 -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.map' \) -exec cp {} firmware-artifacts/ \;
+          ls -lh firmware-artifacts
+
+      - name: Upload firmware artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plane-radar-supermini-${{ github.sha }}
+          path: firmware-artifacts/
+          if-no-files-found: error
+          retention-days: 14
