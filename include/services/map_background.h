@@ -1,7 +1,10 @@
 #pragma once
 
+#include <algorithm>
+
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
+#include <WiFi.h>
 
 namespace services::map_background {
 
