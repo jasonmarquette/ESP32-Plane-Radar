@@ -8,6 +8,7 @@
 #include "config.h"
 #include "hardware/display.h"
 #include "services/adsb_client.h"
+#include "services/map_background.h"
 #include "services/radar_location.h"
 #include "services/wifi_setup.h"
 #include "ui/radar_display.h"
@@ -32,6 +33,8 @@ void showRadarIfConnected() {
 
 void onRangeTap() {
   ui::radar::rangeNext();
+  services::map_background::invalidate();
+
   char range_label[12];
   ui::radar::formatCurrentRing3Label(range_label, sizeof(range_label));
   Serial.printf("Range: %s (outer ~%.0f km)\n", range_label,
@@ -74,6 +77,7 @@ void setup() {
     statusScreenPortal();
   }
   services::location::init();
+  services::map_background::init();
   ui::radar::rangeInit();
   services::adsb::setPollFn(wifiLoop);
 
