@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
@@ -20,95 +20,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-
-      - name: Remove redundant LovyanGFX font aliases
-        if: github.event_name == 'pull_request'
-        run: |
-          files=(
-            src/ui/radar_display.cpp
-            src/ui/runway_overlay.cpp
-            src/ui/status_screens.cpp
-          )
-          changed=0
-          for file in "${files[@]}"; do
-            if grep -q '^namespace fonts = lgfx::v1::fonts;$' "$file"; then
-              sed -i '/^namespace fonts = lgfx::v1::fonts;$/d' "$file"
-              changed=1
-            fi
-          done
-          if [ "$changed" -eq 1 ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add "${files[@]}"
-            git commit -m "Fix LovyanGFX font namespace conflicts"
-            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-          fi
-
-      - name: Wire cached map into radar frame
-        if: github.event_name == 'pull_request'
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/ui/radar_display.cpp")
-          text = path.read_text(encoding="utf-8")
-          original = text
-
-          include_anchor = '#include "services/adsb_client.h"\n'
-          include_line = '#include "services/map_background.h"\n'
-          if include_line not in text:
-              if include_anchor not in text:
-                  raise SystemExit("map integration: include anchor not found")
-              text = text.replace(include_anchor, include_anchor + include_line, 1)
-
-          old_signature = "template <typename Gfx>\nvoid drawStaticGrid(Gfx& gfx) {"
-          new_signature = (
-              "template <typename Gfx>\n"
-              "void drawStaticGrid(Gfx& gfx, bool background_ready = false) {"
-          )
-          if old_signature in text:
-              text = text.replace(old_signature, new_signature, 1)
-          elif new_signature not in text:
-              raise SystemExit("map integration: drawStaticGrid signature not found")
-
-          old_fill = "  gfx.fillScreen(radar::kColorBackground);\n  drawRings(cx, cy, grid_r);"
-          new_fill = (
-              "  if (!background_ready) {\n"
-              "    gfx.fillScreen(radar::kColorBackground);\n"
-              "  }\n"
-              "  drawRings(cx, cy, grid_r);"
-          )
-          if old_fill in text:
-              text = text.replace(old_fill, new_fill, 1)
-          elif new_fill not in text:
-              raise SystemExit("map integration: background fill anchor not found")
-
-          old_render = "void renderFrame() {\n  drawStaticGrid(s_frame);"
-          new_render = (
-              "void renderFrame() {\n"
-              "  const bool map_ready = services::map_background::draw(\n"
-              "      s_frame, services::location::lat(), services::location::lon(),\n"
-              "      radar::rangeCurrent().outer_km);\n"
-              "  drawStaticGrid(s_frame, map_ready);"
-          )
-          if old_render in text:
-              text = text.replace(old_render, new_render, 1)
-          elif new_render not in text:
-              raise SystemExit("map integration: renderFrame anchor not found")
-
-          if text != original:
-              path.write_text(text, encoding="utf-8")
-          PY
-
-          if ! git diff --quiet -- src/ui/radar_display.cpp; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/ui/radar_display.cpp
-            git commit -m "Render cached map beneath radar overlays"
-            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-          fi
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
