@@ -1,12 +1,13 @@
 #include "services/map_background.h"
 
 #include <HTTPClient.h>
+#include <LittleFS.h>
 #include <Preferences.h>
 #include <TJpg_Decoder.h>
 #include <WiFiClientSecure.h>
 
+#include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 
 namespace services::map_background {
@@ -15,12 +16,14 @@ namespace {
 constexpr char kPrefsNamespace[] = "map";
 constexpr char kPrefsApiKey[] = "maptiler_key";
 constexpr char kMapStyle[] = "dataviz-light";
+constexpr char kCachePath[] = "/radar-map.jpg";
 constexpr int kMapSizePx = 320;
 constexpr size_t kMaxApiKeyLen = 96;
-constexpr size_t kMaxJpegBytes = 180 * 1024;
+constexpr size_t kMaxJpegBytes = 300 * 1024;
 
 char s_api_key[kMaxApiKeyLen + 1] = {};
 bool s_initialized = false;
+bool s_fs_ready = false;
 bool s_invalidated = true;
 LGFX_Sprite* s_decode_target = nullptr;
 
@@ -33,9 +36,20 @@ struct CacheKey {
 
 CacheKey s_cache;
 
+bool ensureFileSystem() {
+  if (s_fs_ready) {
+    return true;
+  }
+  s_fs_ready = LittleFS.begin(true);
+  if (!s_fs_ready) {
+    Serial.println("map: LittleFS mount failed");
+  }
+  return s_fs_ready;
+}
+
 bool jpegOutput(int16_t x, int16_t y, uint16_t w, uint16_t h,
                 uint16_t* bitmap) {
-  if (s_decode_target == nullptr || y >= kMapSizePx || x >= kMapSizePx) {
+  if (s_decode_target == nullptr || x >= kMapSizePx || y >= kMapSizePx) {
     return false;
   }
 
@@ -52,8 +66,8 @@ bool jpegOutput(int16_t x, int16_t y, uint16_t w, uint16_t h,
 }
 
 float zoomForRange(double lat, float outer_radius_km) {
-  // MapTiler's tile pyramid uses 512 px tiles. Choose a fractional zoom that
-  // makes the visible map width approximately the radar's outer diameter.
+  // MapTiler's map pyramid uses 512 px tiles. Match the 320 px map width to
+  // approximately twice the radar's outer radius.
   constexpr double kMetersPerPixelAtEquatorZoom0 = 78271.516964;
   const double lat_rad = lat * 0.017453292519943295;
   const double ground_width_m =
@@ -67,7 +81,7 @@ float zoomForRange(double lat, float outer_radius_km) {
 String staticMapUrl(double lat, double lon, float outer_radius_km) {
   const float zoom = zoomForRange(lat, outer_radius_km);
   String url;
-  url.reserve(240);
+  url.reserve(256);
   url += "https://api.maptiler.com/maps/";
   url += kMapStyle;
   url += "/static/";
@@ -86,7 +100,8 @@ String staticMapUrl(double lat, double lon, float outer_radius_km) {
 }
 
 bool cacheMatches(double lat, double lon, float outer_radius_km) {
-  if (!s_cache.valid || s_invalidated) {
+  if (!s_cache.valid || s_invalidated || !ensureFileSystem() ||
+      !LittleFS.exists(kCachePath)) {
     return false;
   }
   return std::fabs(s_cache.lat - lat) < 0.000001 &&
@@ -100,6 +115,80 @@ void updateCacheKey(double lat, double lon, float outer_radius_km) {
   s_cache.outer_km = outer_radius_km;
   s_cache.valid = true;
   s_invalidated = false;
+}
+
+bool downloadMap(double lat, double lon, float outer_radius_km) {
+  if (WiFi.status() != WL_CONNECTED || !ensureFileSystem()) {
+    return false;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  if (!http.begin(client, staticMapUrl(lat, lon, outer_radius_km))) {
+    Serial.println("map: HTTP begin failed");
+    return false;
+  }
+  http.setTimeout(15000);
+
+  const int status = http.GET();
+  if (status != HTTP_CODE_OK) {
+    Serial.printf("map: HTTP %d\n", status);
+    http.end();
+    return false;
+  }
+
+  const int content_length = http.getSize();
+  if (content_length <= 0 ||
+      static_cast<size_t>(content_length) > kMaxJpegBytes) {
+    Serial.printf("map: invalid JPEG size %d\n", content_length);
+    http.end();
+    return false;
+  }
+
+  File file = LittleFS.open(kCachePath, "w");
+  if (!file) {
+    Serial.println("map: cache file open failed");
+    http.end();
+    return false;
+  }
+
+  const int written = http.writeToStream(&file);
+  file.close();
+  http.end();
+
+  if (written != content_length) {
+    Serial.printf("map: short write %d/%d\n", written, content_length);
+    LittleFS.remove(kCachePath);
+    return false;
+  }
+
+  updateCacheKey(lat, lon, outer_radius_km);
+  Serial.printf("map: cached %.6f,%.6f range %.1f km (%d bytes)\n", lat,
+                lon, outer_radius_km, written);
+  return true;
+}
+
+bool decodeCachedMap(LGFX_Sprite& target) {
+  if (!ensureFileSystem() || !LittleFS.exists(kCachePath)) {
+    return false;
+  }
+
+  TJpgDec.setJpgScale(1);
+  TJpgDec.setSwapBytes(true);
+  TJpgDec.setCallback(jpegOutput);
+  s_decode_target = &target;
+  const JRESULT result = TJpgDec.drawFsJpg(0, 0, kCachePath, LittleFS);
+  s_decode_target = nullptr;
+
+  if (result != JDR_OK) {
+    Serial.printf("map: JPEG decode failed (%d)\n", result);
+    LittleFS.remove(kCachePath);
+    s_cache.valid = false;
+    return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -116,6 +205,7 @@ void init() {
                                                   sizeof(s_api_key));
     prefs.end();
   }
+  ensureFileSystem();
   s_initialized = true;
 }
 
@@ -147,7 +237,12 @@ void saveApiKey(const char* key) {
   invalidate();
 }
 
-void clear() { saveApiKey(""); }
+void clear() {
+  saveApiKey("");
+  if (ensureFileSystem()) {
+    LittleFS.remove(kCachePath);
+  }
+}
 
 void invalidate() {
   s_invalidated = true;
@@ -156,79 +251,16 @@ void invalidate() {
 
 bool draw(LGFX_Sprite& target, double lat, double lon, float outer_radius_km) {
   init();
-  if (!configured() || WiFi.status() != WL_CONNECTED) {
+  if (!configured()) {
     return false;
   }
 
-  // The caller normally redraws the frame sprite every aircraft refresh. A
-  // later cache layer will preserve decoded pixels; for now avoid a duplicate
-  // request only within an unchanged draw cycle.
-  if (cacheMatches(lat, lon, outer_radius_km)) {
+  if (!cacheMatches(lat, lon, outer_radius_km) &&
+      !downloadMap(lat, lon, outer_radius_km)) {
     return false;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  const String url = staticMapUrl(lat, lon, outer_radius_km);
-  if (!http.begin(client, url)) {
-    Serial.println("map: HTTP begin failed");
-    return false;
-  }
-  http.setTimeout(12000);
-
-  const int status = http.GET();
-  if (status != HTTP_CODE_OK) {
-    Serial.printf("map: HTTP %d\n", status);
-    http.end();
-    return false;
-  }
-
-  const int content_length = http.getSize();
-  if (content_length <= 0 ||
-      static_cast<size_t>(content_length) > kMaxJpegBytes) {
-    Serial.printf("map: invalid JPEG size %d\n", content_length);
-    http.end();
-    return false;
-  }
-
-  uint8_t* jpeg = static_cast<uint8_t*>(std::malloc(content_length));
-  if (jpeg == nullptr) {
-    Serial.printf("map: unable to allocate %d bytes\n", content_length);
-    http.end();
-    return false;
-  }
-
-  WiFiClient* stream = http.getStreamPtr();
-  const size_t bytes_read =
-      stream->readBytes(jpeg, static_cast<size_t>(content_length));
-  http.end();
-
-  if (bytes_read != static_cast<size_t>(content_length)) {
-    Serial.printf("map: short read %u/%d\n", static_cast<unsigned>(bytes_read),
-                  content_length);
-    std::free(jpeg);
-    return false;
-  }
-
-  TJpgDec.setJpgScale(1);
-  TJpgDec.setSwapBytes(true);
-  TJpgDec.setCallback(jpegOutput);
-  s_decode_target = &target;
-  const JRESULT result = TJpgDec.drawJpg(0, 0, jpeg, bytes_read);
-  s_decode_target = nullptr;
-  std::free(jpeg);
-
-  if (result != JDR_OK) {
-    Serial.printf("map: JPEG decode failed (%d)\n", result);
-    return false;
-  }
-
-  updateCacheKey(lat, lon, outer_radius_km);
-  Serial.printf("map: rendered %.6f,%.6f range %.1f km\n", lat, lon,
-                outer_radius_km);
-  return true;
+  return decodeCachedMap(target);
 }
 
 }  // namespace services::map_background
