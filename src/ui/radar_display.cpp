@@ -95,7 +95,6 @@ void selectNearestAircraft() {
     if (!std::isfinite(planes[i].lat) || !std::isfinite(planes[i].lon)) {
       continue;
     }
-
     float dx = 0.0f;
     float dy = 0.0f;
     float distance = 0.0f;
@@ -109,17 +108,14 @@ void selectNearestAircraft() {
 }
 
 bool ensureFrameSprite() {
-  if (s_frame_ready && s_frame.getBuffer() != nullptr) {
-    return true;
-  }
-
+  if (s_frame_ready && s_frame.getBuffer() != nullptr) return true;
   s_frame.setColorDepth(8);
   if (!s_frame.createSprite(radar::kSize, radar::kSize)) {
-    Serial.println("radar: frame sprite alloc failed");
+    Serial.printf("radar: frame sprite alloc failed; using direct renderer; heap %u largest %u\n",
+                  ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     s_frame_ready = false;
     return false;
   }
-
   s_frame_ready = true;
   return true;
 }
@@ -130,16 +126,14 @@ void latLonToScreen(float lat, float lon, int* x, int* y,
   float dy = 0.0f;
   float distance = 0.0f;
   offsetKmFromCenter(lat, lon, &dx, &dy, &distance);
-
-  const float px_per_km =
-      static_cast<float>(radar::kGridOuterRadius) /
-      radar::rangeCurrent().outer_km;
+  const float px_per_km = static_cast<float>(radar::kGridOuterRadius) /
+                          radar::rangeCurrent().outer_km;
   *x = radar::kCenterX + static_cast<int>(lroundf(dx * px_per_km));
   *y = radar::kCenterY - static_cast<int>(lroundf(dy * px_per_km));
   if (distance_km) *distance_km = distance;
 }
 
-void drawRing(LGFX_Sprite& gfx, int radius) {
+void drawRing(lgfx::LovyanGFX& gfx, int radius) {
   const int thickness =
       std::max(1, static_cast<int>(radar::kGridStrokeHalfWidth * 2.0f));
   for (int i = 0; i < thickness && radius - i > 0; ++i) {
@@ -148,7 +142,7 @@ void drawRing(LGFX_Sprite& gfx, int radius) {
   }
 }
 
-void drawCardinal(LGFX_Sprite& gfx, const char* text, int x, int y,
+void drawCardinal(lgfx::LovyanGFX& gfx, const char* text, int x, int y,
                   textdatum_t datum) {
   gfx.setFont(&fonts::FreeSansBold12pt7b);
   gfx.setTextSize(1);
@@ -157,8 +151,9 @@ void drawCardinal(LGFX_Sprite& gfx, const char* text, int x, int y,
   gfx.drawString(text, x, y);
 }
 
-void drawGrid(LGFX_Sprite& gfx, bool map_ready) {
-  if (!map_ready) gfx.fillScreen(radar::kColorBackground);
+void drawGrid(lgfx::LovyanGFX& gfx, bool map_ready) {
+  if (!map_ready) gfx.fillRect(0, 0, radar::kSize, radar::kSize,
+                               radar::kColorBackground);
 
   for (int i = 1; i <= radar::kRingCount; ++i) {
     drawRing(gfx, radar::kGridOuterRadius * i / radar::kRingCount);
@@ -203,7 +198,6 @@ void trianglePoints(int cx, int cy, float heading_deg, int nose_len,
   const float rad = heading_deg * 0.01745329252f;
   const float sin_h = sinf(rad);
   const float cos_h = cosf(rad);
-
   *tip_x = cx + static_cast<int>(lroundf(sin_h * nose_len));
   *tip_y = cy - static_cast<int>(lroundf(cos_h * nose_len));
   const int base_x = cx - static_cast<int>(lroundf(sin_h * tail_len));
@@ -216,17 +210,15 @@ void trianglePoints(int cx, int cy, float heading_deg, int nose_len,
   *right_y = base_y - wing_y;
 }
 
-void drawAircraftSymbol(LGFX_Sprite& gfx, int x, int y,
+void drawAircraftSymbol(lgfx::LovyanGFX& gfx, int x, int y,
                         const services::adsb::Aircraft& plane,
                         bool selected) {
   const int nose = radar::kAircraftNoseLenPx + (selected ? 3 : 0);
   const int tail = radar::kAircraftTailLenPx + (selected ? 1 : 0);
   const int half = radar::kAircraftTailHalfPx + (selected ? 2 : 0);
-
   int tx, ty, lx, ly, rx, ry;
   trianglePoints(x, y, plane.nose_deg, nose, tail, half, &tx, &ty, &lx, &ly,
                  &rx, &ry);
-
   if (selected) {
     gfx.fillSmoothCircle(x, y, half + 5, radar::kColorLabel);
     gfx.fillSmoothCircle(x, y, half + 2, radar::kColorBackground);
@@ -235,10 +227,9 @@ void drawAircraftSymbol(LGFX_Sprite& gfx, int x, int y,
                    selected ? radar::kColorLabel : radar::kColorAircraft);
 }
 
-void drawTrackVector(LGFX_Sprite& gfx, int x, int y,
+void drawTrackVector(lgfx::LovyanGFX& gfx, int x, int y,
                      const services::adsb::Aircraft& plane, bool selected) {
   if (plane.gs_knots <= 0.0f) return;
-
   const float px = plane.gs_knots * 1.852f * radar::kAircraftTrackHorizonSec /
                    3600.0f * radar::kGridOuterRadius /
                    radar::kAircraftTrackRefOuterKm *
@@ -254,11 +245,10 @@ void drawTrackVector(LGFX_Sprite& gfx, int x, int y,
                    selected ? radar::kColorLabel : radar::kColorTrackVector);
 }
 
-void drawAircraftTag(LGFX_Sprite& gfx, int x, int y,
+void drawAircraftTag(lgfx::LovyanGFX& gfx, int x, int y,
                      const services::adsb::Aircraft& plane, bool selected) {
   const char* primary = plane.callsign[0] ? plane.callsign : plane.type;
   if (!primary || !primary[0]) return;
-
   gfx.setFont(&fonts::Font2);
   gfx.setTextSize(1);
   gfx.setTextDatum(x < radar::kCenterX ? textdatum_t::top_left
@@ -272,7 +262,7 @@ void drawAircraftTag(LGFX_Sprite& gfx, int x, int y,
                  y - 7);
 }
 
-void drawAircraft(LGFX_Sprite& gfx) {
+void drawAircraft(lgfx::LovyanGFX& gfx) {
   const size_t count = services::adsb::aircraftCount();
   const services::adsb::Aircraft* planes = services::adsb::aircraftList();
   const float visible_km = radar::rangeCurrent().outer_km;
@@ -323,7 +313,6 @@ void drawInfoPanel() {
   constexpr int panel_w = 160;
   constexpr int panel_h = 320;
   const int x = panel_x + 8;
-
   const uint16_t bg = radar::kColorBackground;
   const uint16_t line = radar::kColorGrid;
   const uint16_t label = radar::kColorLabel;
@@ -333,7 +322,6 @@ void drawInfoPanel() {
 
   tft.fillRect(panel_x, 0, panel_w, panel_h, bg);
   tft.drawFastVLine(panel_x, 0, panel_h, line);
-
   tft.setFont(&fonts::Font2);
   tft.setTextDatum(textdatum_t::top_left);
   tft.setTextSize(2);
@@ -353,7 +341,6 @@ void drawInfoPanel() {
   if (s_target_index != kNoTarget &&
       s_target_index < services::adsb::aircraftCount()) {
     const services::adsb::Aircraft& target = planes[s_target_index];
-
     const char* name = target.callsign[0] ? target.callsign : "UNKNOWN";
     tft.setFont(&fonts::Font2);
     tft.setTextSize(2);
@@ -365,18 +352,14 @@ void drawInfoPanel() {
     snprintf(line_text, sizeof(line_text), "TYPE  %s",
              target.type[0] ? target.type : "----");
     panelLabel(x, 124, line_text, value, bg);
-
     snprintf(line_text, sizeof(line_text), "DIST  %.1f km",
              s_target_distance_km);
     panelLabel(x, 144, line_text, value, bg);
-
     snprintf(line_text, sizeof(line_text), "ALT   %s",
              target.alt[0] ? target.alt : "----");
     panelLabel(x, 164, line_text, radar::kColorTagAltitude, bg);
-
     snprintf(line_text, sizeof(line_text), "SPD   %.0f kt", target.gs_knots);
     panelLabel(x, 184, line_text, value, bg);
-
     snprintf(line_text, sizeof(line_text), "HDG   %03.0f deg", target.track_deg);
     panelLabel(x, 204, line_text, value, bg);
   } else {
@@ -405,18 +388,27 @@ void drawInfoPanel() {
 
 void renderFrame() {
   selectNearestAircraft();
-
   const bool map_ready = services::map_background::draw(
       s_frame, services::location::lat(), services::location::lon(),
       radar::rangeCurrent().outer_km);
-
-  // map_background may recreate the sprite after low-memory tile downloads.
   s_frame_ready = s_frame.getBuffer() != nullptr;
   if (!s_frame_ready && !ensureFrameSprite()) return;
-
   drawGrid(s_frame, map_ready);
   drawAircraft(s_frame);
   s_frame.pushSprite(0, 0);
+  drawInfoPanel();
+  tft.setTextDatum(textdatum_t::top_left);
+}
+
+void renderDirect() {
+  selectNearestAircraft();
+  tft.startWrite();
+  const bool map_ready = services::map_background::drawDirect(
+      tft, services::location::lat(), services::location::lon(),
+      radar::rangeCurrent().outer_km);
+  drawGrid(tft, map_ready);
+  drawAircraft(tft);
+  tft.endWrite();
   drawInfoPanel();
   tft.setTextDatum(textdatum_t::top_left);
 }
@@ -427,11 +419,9 @@ void radarDisplayDraw() {
   initPalette();
   if (ensureFrameSprite()) {
     renderFrame();
-    return;
+  } else {
+    renderDirect();
   }
-
-  tft.fillScreen(radar::kColorBackground);
-  drawInfoPanel();
 }
 
 void radarDisplayRefreshAircraft() {
@@ -439,7 +429,7 @@ void radarDisplayRefreshAircraft() {
   if (ensureFrameSprite()) {
     renderFrame();
   } else {
-    radarDisplayDraw();
+    renderDirect();
   }
 }
 
