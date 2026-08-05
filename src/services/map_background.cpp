@@ -163,10 +163,6 @@ String tileUrl(int zoom, int x, int y) {
 bool downloadTile(int zoom, int x, int y, const String& path) {
   WiFiClientSecure client;
   client.setInsecure();
-  // Default TLS buffers are too large alongside the 320x320 radar sprite on
-  // an ESP32-C3 without PSRAM. Map tiles are small streamed responses, so
-  // reduced buffers are sufficient and leave room for the TLS handshake.
-  client.setBufferSizes(4096, 1024);
 
   HTTPClient http;
   if (!http.begin(client, tileUrl(zoom, x, y))) {
