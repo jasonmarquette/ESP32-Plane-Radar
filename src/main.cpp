@@ -5,6 +5,9 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+#include <cmath>
+#include <cstdint>
+
 #include "config.h"
 #include "hardware/display.h"
 #include "services/adsb_client.h"
@@ -17,10 +20,47 @@
 
 namespace {
 
+constexpr unsigned long kDisplayMinRefreshMs = 10000UL;
+constexpr unsigned long kDisplayMaxRefreshMs = 30000UL;
+
 bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
+unsigned long g_last_display_refresh_ms = 0;
+uint32_t g_last_traffic_signature = 0;
+
+uint32_t mixHash(uint32_t hash, uint32_t value) {
+  hash ^= value;
+  hash *= 16777619UL;
+  return hash;
+}
+
+uint32_t trafficSignature() {
+  uint32_t hash = 2166136261UL;
+  const size_t count = services::adsb::aircraftCount();
+  const services::adsb::Aircraft* planes = services::adsb::aircraftList();
+
+  hash = mixHash(hash, static_cast<uint32_t>(count));
+  for (size_t i = 0; i < count; ++i) {
+    // Quantize position to roughly 1 km. Small ADS-B jitter no longer causes a
+    // complete screen redraw every poll, while meaningful movement still does.
+    const int32_t lat_bucket =
+        static_cast<int32_t>(lroundf(planes[i].lat * 100.0f));
+    const int32_t lon_bucket =
+        static_cast<int32_t>(lroundf(planes[i].lon * 100.0f));
+    hash = mixHash(hash, static_cast<uint32_t>(lat_bucket));
+    hash = mixHash(hash, static_cast<uint32_t>(lon_bucket));
+
+    for (size_t c = 0; c < sizeof(planes[i].callsign) &&
+                       planes[i].callsign[c] != '\0';
+         ++c) {
+      hash = mixHash(hash,
+                     static_cast<uint8_t>(planes[i].callsign[c]));
+    }
+  }
+  return hash;
+}
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -28,6 +68,8 @@ void showRadarIfConnected() {
     return;
   }
   ui::radarDisplayDraw();
+  g_last_display_refresh_ms = millis();
+  g_last_traffic_signature = trafficSignature();
   g_radar_visible = true;
 }
 
@@ -42,6 +84,7 @@ void onRangeTap() {
 
   if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
     ui::radarDisplayDraw();
+    g_last_display_refresh_ms = millis();
   }
 }
 
@@ -55,10 +98,6 @@ void fetchAndDrawAircraft() {
   const float fetch_km =
       configured_radius > 0.0f ? configured_radius : ui::radar::fetchRadiusKm();
 
-  // Free the large off-screen frame and pause WiFiManager before TLS. After
-  // the response arrives, rebuild and push the complete frame while the portal
-  // is still paused. This keeps enough contiguous heap for both operations and
-  // prevents the visible line-by-line redraw blink.
   ui::radarDisplayReleaseFrameForNetwork();
   wifiSuspendLanPortal();
 
@@ -66,7 +105,19 @@ void fetchAndDrawAircraft() {
       services::location::lat(), services::location::lon(), fetch_km);
 
   if (fetched) {
-    ui::radarDisplayRefreshAircraft();
+    const unsigned long now = millis();
+    const uint32_t signature = trafficSignature();
+    const bool materially_changed = signature != g_last_traffic_signature;
+    const bool minimum_elapsed =
+        now - g_last_display_refresh_ms >= kDisplayMinRefreshMs;
+    const bool maximum_elapsed =
+        now - g_last_display_refresh_ms >= kDisplayMaxRefreshMs;
+
+    if ((materially_changed && minimum_elapsed) || maximum_elapsed) {
+      ui::radarDisplayRefreshAircraft();
+      g_last_display_refresh_ms = millis();
+      g_last_traffic_signature = signature;
+    }
   }
 
   wifiResumeLanPortal();
