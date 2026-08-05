@@ -77,7 +77,6 @@ void offsetKmFromCenter(float lat, float lon, float* dx_km, float* dy_km,
   const double center_lon = services::location::lon();
   const float lon_scale =
       kKmPerDegLat * cosf(static_cast<float>(center_lat) * 0.01745329252f);
-
   *dx_km = static_cast<float>(lon - center_lon) * lon_scale;
   *dy_km = static_cast<float>(lat - center_lat) * kKmPerDegLat;
   *distance_km = sqrtf(*dx_km * *dx_km + *dy_km * *dy_km);
@@ -109,15 +108,28 @@ void selectNearestAircraft() {
 
 bool ensureFrameSprite() {
   if (s_frame_ready && s_frame.getBuffer() != nullptr) return true;
+
   s_frame.setColorDepth(8);
   if (!s_frame.createSprite(radar::kSize, radar::kSize)) {
-    Serial.printf("radar: frame sprite alloc failed; using direct renderer; heap %u largest %u\n",
-                  ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    Serial.printf(
+        "radar: frame sprite alloc failed; using direct renderer; heap %u largest %u\n",
+        ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     s_frame_ready = false;
     return false;
   }
+
   s_frame_ready = true;
+  Serial.printf("radar: atomic frame allocated; heap %u largest %u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   return true;
+}
+
+void releaseFrame() {
+  if (s_frame.getBuffer() != nullptr) {
+    s_frame.deleteSprite();
+    delay(1);
+  }
+  s_frame_ready = false;
 }
 
 void latLonToScreen(float lat, float lon, int* x, int* y,
@@ -152,8 +164,10 @@ void drawCardinal(lgfx::LovyanGFX& gfx, const char* text, int x, int y,
 }
 
 void drawGrid(lgfx::LovyanGFX& gfx, bool map_ready) {
-  if (!map_ready) gfx.fillRect(0, 0, radar::kSize, radar::kSize,
-                               radar::kColorBackground);
+  if (!map_ready) {
+    gfx.fillRect(0, 0, radar::kSize, radar::kSize,
+                 radar::kColorBackground);
+  }
 
   for (int i = 1; i <= radar::kRingCount; ++i) {
     drawRing(gfx, radar::kGridOuterRadius * i / radar::kRingCount);
@@ -219,6 +233,7 @@ void drawAircraftSymbol(lgfx::LovyanGFX& gfx, int x, int y,
   int tx, ty, lx, ly, rx, ry;
   trianglePoints(x, y, plane.nose_deg, nose, tail, half, &tx, &ty, &lx, &ly,
                  &rx, &ry);
+
   if (selected) {
     gfx.fillSmoothCircle(x, y, half + 5, radar::kColorLabel);
     gfx.fillSmoothCircle(x, y, half + 2, radar::kColorBackground);
@@ -230,6 +245,7 @@ void drawAircraftSymbol(lgfx::LovyanGFX& gfx, int x, int y,
 void drawTrackVector(lgfx::LovyanGFX& gfx, int x, int y,
                      const services::adsb::Aircraft& plane, bool selected) {
   if (plane.gs_knots <= 0.0f) return;
+
   const float px = plane.gs_knots * 1.852f * radar::kAircraftTrackHorizonSec /
                    3600.0f * radar::kGridOuterRadius /
                    radar::kAircraftTrackRefOuterKm *
@@ -249,6 +265,7 @@ void drawAircraftTag(lgfx::LovyanGFX& gfx, int x, int y,
                      const services::adsb::Aircraft& plane, bool selected) {
   const char* primary = plane.callsign[0] ? plane.callsign : plane.type;
   if (!primary || !primary[0]) return;
+
   gfx.setFont(&fonts::Font2);
   gfx.setTextSize(1);
   gfx.setTextDatum(x < radar::kCenterX ? textdatum_t::top_left
@@ -393,8 +410,12 @@ void renderFrame() {
       radar::rangeCurrent().outer_km);
   s_frame_ready = s_frame.getBuffer() != nullptr;
   if (!s_frame_ready && !ensureFrameSprite()) return;
+
   drawGrid(s_frame, map_ready);
   drawAircraft(s_frame);
+
+  // One blit replaces the whole radar region, preventing visible scan-line
+  // redraws while keeping the map, grid, and traffic synchronized.
   s_frame.pushSprite(0, 0);
   drawInfoPanel();
   tft.setTextDatum(textdatum_t::top_left);
@@ -413,10 +434,7 @@ void renderDirect() {
   tft.setTextDatum(textdatum_t::top_left);
 }
 
-}  // namespace
-
-void radarDisplayDraw() {
-  initPalette();
+void renderBestAvailable() {
   if (ensureFrameSprite()) {
     renderFrame();
   } else {
@@ -424,13 +442,22 @@ void radarDisplayDraw() {
   }
 }
 
+}  // namespace
+
+void radarDisplayDraw() {
+  initPalette();
+  renderBestAvailable();
+}
+
 void radarDisplayRefreshAircraft() {
   initPalette();
-  if (ensureFrameSprite()) {
-    renderFrame();
-  } else {
-    renderDirect();
-  }
+  renderBestAvailable();
+}
+
+void radarDisplayReleaseFrameForNetwork() {
+  releaseFrame();
+  Serial.printf("radar: frame released for TLS; heap %u largest %u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 }
 
 }  // namespace ui
