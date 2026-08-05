@@ -4,6 +4,7 @@
 #include <LittleFS.h>
 #include <PNGdec.h>
 #include <Preferences.h>
+#include <WiFi.h>
 #include <WiFiClientSecure.h>
 
 #include <algorithm>
@@ -33,7 +34,7 @@ unsigned long s_next_retry_ms = 0;
 
 PNG s_png;
 File s_png_file;
-LGFX_Sprite* s_decode_target = nullptr;
+lgfx::LovyanGFX* s_decode_target = nullptr;
 int s_decode_origin_x = 0;
 int s_decode_origin_y = 0;
 uint16_t s_png_line[kTileSizePx];
@@ -109,7 +110,6 @@ int32_t pngSeek(PNGFILE* handle, int32_t position) {
 
 int pngDraw(PNGDRAW* draw) {
   if (!s_decode_target || !draw || draw->iWidth > kTileSizePx) return 0;
-
   s_png.getLineAsRGB565(draw, s_png_line, PNG_RGB565_LITTLE_ENDIAN,
                         0xffffffff);
 
@@ -188,18 +188,14 @@ String tileUrl(int zoom, int x, int y) {
 bool validPngFile(const String& path, bool log_failure) {
   File file = LittleFS.open(path, "r");
   if (!file) return false;
-
   uint8_t signature[sizeof(kPngSignature)] = {};
   const size_t read = file.read(signature, sizeof(signature));
   file.close();
-
-  const bool valid =
-      read == sizeof(signature) &&
-      std::memcmp(signature, kPngSignature, sizeof(kPngSignature)) == 0;
+  const bool valid = read == sizeof(signature) &&
+                     std::memcmp(signature, kPngSignature,
+                                 sizeof(kPngSignature)) == 0;
   if (!valid && log_failure) {
-    Serial.printf("map: invalid PNG signature %s:", path.c_str());
-    for (size_t i = 0; i < read; ++i) Serial.printf(" %02X", signature[i]);
-    Serial.println();
+    Serial.printf("map: invalid PNG signature %s\n", path.c_str());
   }
   return valid;
 }
@@ -208,7 +204,6 @@ bool allTilesCached(const TileView& view) {
   if (!ensureFileSystem() || s_invalidated || !sameView(view, s_cache)) {
     return false;
   }
-
   const int tile_count = 1 << view.zoom;
   for (int raw_y = view.min_y; raw_y <= view.max_y; ++raw_y) {
     if (raw_y < 0 || raw_y >= tile_count) return false;
@@ -223,10 +218,8 @@ bool allTilesCached(const TileView& view) {
 bool downloadTile(int zoom, int x, int y, const String& path) {
   Serial.printf("map: TLS heap before tile %u, largest %u\n", ESP.getFreeHeap(),
                 ESP.getMaxAllocHeap());
-
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
   if (!http.begin(client, tileUrl(zoom, x, y))) {
     Serial.println("map: tile HTTP begin failed");
@@ -260,20 +253,13 @@ bool downloadTile(int zoom, int x, int y, const String& path) {
     http.end();
     return false;
   }
-
   const int written = http.writeToStream(&file);
   file.close();
   http.end();
 
-  if (written != content_length) {
-    Serial.printf("map: tile short write %d/%d\n", written, content_length);
-    LittleFS.remove(path);
-    return false;
-  }
-
-  if (!validPngFile(path, true)) {
-    Serial.printf("map: rejected tile %d/%d/%d type %s (%d bytes)\n", zoom, x,
-                  y, content_type.c_str(), written);
+  if (written != content_length || !validPngFile(path, true)) {
+    Serial.printf("map: rejected tile %d/%d/%d (%d/%d bytes)\n", zoom, x, y,
+                  written, content_length);
     LittleFS.remove(path);
     return false;
   }
@@ -285,7 +271,6 @@ bool downloadTile(int zoom, int x, int y, const String& path) {
 
 bool ensureTiles(const TileView& view) {
   if (WiFi.status() != WL_CONNECTED || !ensureFileSystem()) return false;
-
   if (!sameView(view, s_cache) || s_invalidated) {
     clearTileFiles();
     s_cache = TileView{};
@@ -311,23 +296,12 @@ bool ensureTiles(const TileView& view) {
   return true;
 }
 
-bool recreateTarget(LGFX_Sprite& target) {
-  target.setColorDepth(8);
-  if (!target.createSprite(kMapSizePx, kMapSizePx)) {
-    Serial.printf("map: radar sprite recreate failed; heap %u largest %u\n",
-                  ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    return false;
-  }
-  return true;
-}
-
-bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
+bool decodeTile(lgfx::LovyanGFX& target, const String& path, int origin_x,
                 int origin_y) {
   if (!validPngFile(path, true)) {
     LittleFS.remove(path);
     return false;
   }
-
   s_decode_target = &target;
   s_decode_origin_x = origin_x;
   s_decode_origin_y = origin_y;
@@ -347,7 +321,6 @@ bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
   s_png.close();
   closePngFile();
   s_decode_target = nullptr;
-
   if (result != PNG_SUCCESS) {
     Serial.printf("map: tile PNG decode failed %s (%d)\n", path.c_str(),
                   result);
@@ -357,10 +330,9 @@ bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
   return true;
 }
 
-bool drawTiles(LGFX_Sprite& target, const TileView& view) {
+bool drawTiles(lgfx::LovyanGFX& target, const TileView& view) {
   const double left = view.center_px_x - kMapSizePx * 0.5;
   const double top = view.center_px_y - kMapSizePx * 0.5;
-
   for (int raw_y = view.min_y; raw_y <= view.max_y; ++raw_y) {
     for (int raw_x = view.min_x; raw_x <= view.max_x; ++raw_x) {
       const int x = wrapTileX(raw_x, view.zoom);
@@ -377,11 +349,33 @@ bool drawTiles(LGFX_Sprite& target, const TileView& view) {
   return true;
 }
 
+bool drawPrepared(lgfx::LovyanGFX& target, double lat, double lon,
+                  float outer_radius_km, bool allow_download) {
+  init();
+  if (!configured()) return false;
+  const unsigned long now = millis();
+  if (s_next_retry_ms && static_cast<long>(now - s_next_retry_ms) < 0) {
+    return false;
+  }
+
+  const TileView view = tileViewFor(lat, lon, outer_radius_km);
+  if (!allTilesCached(view)) {
+    if (!allow_download || !ensureTiles(view)) {
+      s_next_retry_ms = now + kRetryDelayMs;
+      return false;
+    }
+  }
+  if (!drawTiles(target, view)) {
+    s_next_retry_ms = now + kRetryDelayMs;
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 void init() {
   if (s_initialized) return;
-
   Preferences prefs;
   if (prefs.begin(kPrefsNamespace, true)) {
     prefs.getString(kPrefsApiKey, "")
@@ -407,7 +401,6 @@ void saveApiKey(const char* key) {
   init();
   std::strncpy(s_api_key, key ? key : "", kMaxApiKeyLen);
   s_api_key[kMaxApiKeyLen] = '\0';
-
   Preferences prefs;
   if (prefs.begin(kPrefsNamespace, false)) {
     if (s_api_key[0] == '\0')
@@ -433,7 +426,6 @@ void invalidate() {
 bool draw(LGFX_Sprite& target, double lat, double lon, float outer_radius_km) {
   init();
   if (!configured()) return false;
-
   const unsigned long now = millis();
   if (s_next_retry_ms && static_cast<long>(now - s_next_retry_ms) < 0) {
     return false;
@@ -444,10 +436,14 @@ bool draw(LGFX_Sprite& target, double lat, double lon, float outer_radius_km) {
     target.deleteSprite();
     Serial.printf("map: released radar sprite; heap %u largest %u\n",
                   ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-
     const bool downloaded = ensureTiles(view);
-    const bool recreated = recreateTarget(target);
+    target.setColorDepth(8);
+    const bool recreated = target.createSprite(kMapSizePx, kMapSizePx);
     if (!downloaded || !recreated) {
+      if (!recreated) {
+        Serial.printf("map: radar sprite recreate failed; heap %u largest %u\n",
+                      ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      }
       s_next_retry_ms = now + kRetryDelayMs;
       return false;
     }
@@ -458,6 +454,13 @@ bool draw(LGFX_Sprite& target, double lat, double lon, float outer_radius_km) {
     return false;
   }
   return true;
+}
+
+bool drawDirect(lgfx::LovyanGFX& target, double lat, double lon,
+                float outer_radius_km) {
+  Serial.printf("map: direct LCD render; heap %u largest %u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+  return drawPrepared(target, lat, lon, outer_radius_km, true);
 }
 
 }  // namespace services::map_background
