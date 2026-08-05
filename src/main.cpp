@@ -47,13 +47,14 @@ void onRangeTap() {
 
 void handleBootButton() {
   bootButtonPollLongPress();
-  if (bootButtonConsumeTap()) {
-    onRangeTap();
-  }
+  if (bootButtonConsumeTap()) onRangeTap();
 }
 
 void fetchAndDrawAircraft() {
-  const float fetch_km = ui::radar::fetchRadiusKm();
+  const float configured_radius = services::location::adsbRadiusKm();
+  const float fetch_km =
+      configured_radius > 0.0f ? configured_radius : ui::radar::fetchRadiusKm();
+
   if (!services::adsb::fetchUpdate(services::location::lat(),
                                    services::location::lon(), fetch_km)) {
     handleBootButton();
@@ -73,17 +74,13 @@ void setup() {
 
   bootButtonInit();
   displayInit();
-  if (wifiShowsSetupScreenOnBoot()) {
-    statusScreenPortal();
-  }
+  if (wifiShowsSetupScreenOnBoot()) statusScreenPortal();
   services::location::init();
   services::map_background::init();
   ui::radar::rangeInit();
   services::adsb::setPollFn(wifiLoop);
 
-  if (wifiSetupConnect()) {
-    showRadarIfConnected();
-  }
+  if (wifiSetupConnect()) showRadarIfConnected();
 }
 
 void loop() {
@@ -96,9 +93,7 @@ void loop() {
       g_radar_visible = false;
     }
 
-    if (g_wifi_down_since == 0) {
-      g_wifi_down_since = millis();
-    }
+    if (g_wifi_down_since == 0) g_wifi_down_since = millis();
 
     const unsigned long down_ms = millis() - g_wifi_down_since;
     if (down_ms >= config::kWifiDownGraceMs &&
