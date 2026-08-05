@@ -20,73 +20,75 @@ constexpr int kCardinalSouthOffsetY = 3;
 constexpr int kScaleGapFromOuterRing = 6;
 
 /** Target cap height (px) for N/S/E/W. */
-constexpr int kCardinalLabelHeightPx = 14;
+constexpr int kCardinalLabelHeightPx = 17;
 /** Scale label is this many px shorter than cardinals. */
-constexpr int kScaleBelowCardinalPx = 3;
+constexpr int kScaleBelowCardinalPx = 4;
 
 constexpr int kRingCount = 4;
 
-/** Shared grid stroke: drawWideLine half-width (~2 px total); rings use the same px count. */
-constexpr float kGridStrokeHalfWidth = 1.0f;
+/** High-contrast overlay stroke; roughly 3 px on rings and crosshairs. */
+constexpr float kGridStrokeHalfWidth = 1.5f;
 
-constexpr int kCenterDotRadius = 2;
+constexpr int kCenterDotRadius = 3;
 
 /** Filled aircraft symbol (nose triangle). */
-constexpr int kAircraftNoseLenPx = 8;
-constexpr int kAircraftTailLenPx = 3;
-constexpr int kAircraftTailHalfPx = 4;
+constexpr int kAircraftNoseLenPx = 10;
+constexpr int kAircraftTailLenPx = 4;
+constexpr int kAircraftTailHalfPx = 5;
 /** Track vector: ground distance covered in this many seconds at current gs. */
 constexpr float kAircraftTrackHorizonSec = 60.0f;
 /** Minimum visible vector when gs > 0 (px). */
-constexpr int kAircraftSpeedLineMinPx = 2;
+constexpr int kAircraftSpeedLineMinPx = 3;
 /** Track line length uses this outer_km, not the active range preset. */
 constexpr float kAircraftTrackRefOuterKm = 13.3f;
 /** Shorter than full 60 s horizon at ref scale; ×1.5 length boost applied. */
 constexpr float kAircraftTrackLengthScale = 1.5f / 5.0f;
-/** drawWideLine half-width for speed vectors (~2 px total). */
-constexpr float kAircraftTrackLineHalfWidth = 1.0f;
+/** drawWideLine half-width for speed vectors (~3 px total). */
+constexpr float kAircraftTrackLineHalfWidth = 1.5f;
 
 constexpr float kRunwayLineWidthPx = 2.0f;
 constexpr float kRunwayLineHalfWidth = kRunwayLineWidthPx * 0.5f;
 constexpr int kRunwayLabelHeightPx = kCardinalLabelHeightPx;
 constexpr int kRunwayLabelGapPx = 3;
 /** Gap from triangle edge to tag block (px). */
-constexpr int kAircraftLabelGapPx = 1;
+constexpr int kAircraftLabelGapPx = 3;
 /** Keep symbol centroid inside outer ring by at least this inset (px). */
 constexpr int kAircraftInsideRingInsetPx =
     kAircraftNoseLenPx + kAircraftTailHalfPx + 1;
 
 /** Beyond-ring traffic: bearing cues on screen rim (correct direction, fixed radius). */
-constexpr int kBeyondRingDotRadiusPx = 4;
+constexpr int kBeyondRingDotRadiusPx = 5;
 constexpr int kBeyondRingScreenMarginPx = 2;
-/** Target cap height (px) for aircraft tags (bold, slightly above scale label). */
-constexpr int kAircraftTagLabelHeightPx = 13;
+/** Target cap height (px) for aircraft tags. */
+constexpr int kAircraftTagLabelHeightPx = 14;
 
 /** Original high-contrast palette used whenever no map has rendered. */
 constexpr uint8_t kBgR = 4;
 constexpr uint8_t kBgG = 10;
 constexpr uint8_t kBgB = 28;
-constexpr uint8_t kGridR = 16;
-constexpr uint8_t kGridG = 100;
-constexpr uint8_t kGridB = 32;
-constexpr uint8_t kAircraftR = 255;
-constexpr uint8_t kAircraftG = 0;
-constexpr uint8_t kAircraftB = 0;
+
+/** Bright overlay colors selected to remain visible over light map tiles. */
+constexpr uint8_t kGridR = 40;
+constexpr uint8_t kGridG = 255;
+constexpr uint8_t kGridB = 110;
+constexpr uint8_t kAircraftR = 0;
+constexpr uint8_t kAircraftG = 255;
+constexpr uint8_t kAircraftB = 255;
 constexpr uint8_t kTrackR = 255;
-constexpr uint8_t kTrackG = 0;
+constexpr uint8_t kTrackG = 255;
 constexpr uint8_t kTrackB = 255;
 constexpr uint8_t kTagTypeR = 255;
-constexpr uint8_t kTagTypeG = 200;
-constexpr uint8_t kTagTypeB = 0;
+constexpr uint8_t kTagTypeG = 235;
+constexpr uint8_t kTagTypeB = 60;
 constexpr uint8_t kTagAltR = 90;
-constexpr uint8_t kTagAltG = 200;
+constexpr uint8_t kTagAltG = 220;
 constexpr uint8_t kTagAltB = 255;
-constexpr uint8_t kRunwayR = 56;
-constexpr uint8_t kRunwayG = 150;
-constexpr uint8_t kRunwayB = 170;
-constexpr uint8_t kRunwayLabelR = 110;
-constexpr uint8_t kRunwayLabelG = 210;
-constexpr uint8_t kRunwayLabelB = 230;
+constexpr uint8_t kRunwayR = 50;
+constexpr uint8_t kRunwayG = 210;
+constexpr uint8_t kRunwayB = 230;
+constexpr uint8_t kRunwayLabelR = 160;
+constexpr uint8_t kRunwayLabelG = 240;
+constexpr uint8_t kRunwayLabelB = 255;
 
 extern uint16_t kColorBackground;
 extern uint16_t kColorGrid;
