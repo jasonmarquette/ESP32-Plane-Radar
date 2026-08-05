@@ -9,6 +9,10 @@ bool wifiSetupConnect();
 bool wifiReconnect();
 /** Keeps the LAN config portal alive; call every loop() iteration. */
 void wifiLoop();
+/** Temporarily stop the LAN configuration portal to free heap for TLS. */
+void wifiSuspendLanPortal();
+/** Allow the LAN configuration portal to reopen after network-intensive work. */
+void wifiResumeLanPortal();
 bool wifiBootButtonPressed();
 /** GPIO + interrupt setup; call once early in setup(). */
 void bootButtonInit();
