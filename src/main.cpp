@@ -55,11 +55,19 @@ void fetchAndDrawAircraft() {
   const float fetch_km =
       configured_radius > 0.0f ? configured_radius : ui::radar::fetchRadiusKm();
 
-  if (!services::adsb::fetchUpdate(services::location::lat(),
-                                   services::location::lon(), fetch_km)) {
+  // WiFiManager's always-on LAN portal consumes and fragments enough heap to
+  // prevent the ESP32-C3 TLS handshake. Stop it only for the network request,
+  // then allow wifiLoop() to reopen it afterward.
+  wifiSuspendLanPortal();
+  const bool fetched = services::adsb::fetchUpdate(
+      services::location::lat(), services::location::lon(), fetch_km);
+  wifiResumeLanPortal();
+
+  if (!fetched) {
     handleBootButton();
     return;
   }
+
   ui::radarDisplayRefreshAircraft();
   handleBootButton();
 }
