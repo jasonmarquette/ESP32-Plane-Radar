@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace ui::radar {
@@ -15,7 +16,7 @@ constexpr char kPrefsNamespace[] = "planeradar";
 constexpr char kPrefsRangeKey[] = "rangeIdx";
 constexpr char kPrefsMilesKey[] = "useMiles";
 constexpr char kPrefsRunwaysKey[] = "showRwys";
-constexpr uint8_t kDefaultRangeIndex = 1;  // 10 km ring
+constexpr uint8_t kDefaultRangeIndex = 1;
 constexpr float kKmPerMile = 1.609344f;
 
 Preferences s_prefs;
@@ -24,35 +25,27 @@ bool s_use_miles = false;
 bool s_show_runways = true;
 
 void saveRangeIndex() {
-  if (!s_prefs.begin(kPrefsNamespace, false)) {
-    return;
-  }
+  if (!s_prefs.begin(kPrefsNamespace, false)) return;
   s_prefs.putUChar(kPrefsRangeKey, s_range_index);
   s_prefs.end();
 }
 
 void saveUseMiles() {
-  if (!s_prefs.begin(kPrefsNamespace, false)) {
-    return;
-  }
+  if (!s_prefs.begin(kPrefsNamespace, false)) return;
   s_prefs.putBool(kPrefsMilesKey, s_use_miles);
   s_prefs.end();
 }
 
 void saveShowRunways() {
-  if (!s_prefs.begin(kPrefsNamespace, false)) {
-    return;
-  }
+  if (!s_prefs.begin(kPrefsNamespace, false)) return;
   s_prefs.putBool(kPrefsRunwaysKey, s_show_runways);
   s_prefs.end();
 }
 
 bool portalCheckboxChecked(const char* value) {
-  if (value == nullptr || value[0] == '\0') {
-    return false;
-  }
-  // WiFiManager checkbox submits its value= attribute ("T", or "F" if we prefilled F).
-  if ((value[0] == 'T' || value[0] == 't' || value[0] == 'F' || value[0] == 'f') &&
+  if (value == nullptr || value[0] == '\0') return false;
+  if ((value[0] == 'T' || value[0] == 't' || value[0] == 'F' ||
+       value[0] == 'f') &&
       value[1] == '\0') {
     return true;
   }
@@ -62,12 +55,9 @@ bool portalCheckboxChecked(const char* value) {
 }  // namespace
 
 void rangeInit() {
-  if (!s_prefs.begin(kPrefsNamespace, true)) {
-    return;
-  }
+  if (!s_prefs.begin(kPrefsNamespace, true)) return;
   const uint8_t saved = s_prefs.getUChar(kPrefsRangeKey, kDefaultRangeIndex);
-  s_range_index =
-      (saved < kRangePresetCount) ? saved : kDefaultRangeIndex;
+  s_range_index = saved < kRangePresetCount ? saved : kDefaultRangeIndex;
   s_use_miles = s_prefs.getBool(kPrefsMilesKey, false);
   s_show_runways = s_prefs.getBool(kPrefsRunwaysKey, true);
   s_prefs.end();
@@ -79,7 +69,6 @@ void rangeNext() {
 }
 
 const RangePreset& rangeCurrent() { return kRangePresets[s_range_index]; }
-
 uint8_t rangeIndex() { return s_range_index; }
 
 float fetchRadiusKm() {
@@ -89,8 +78,24 @@ float fetchRadiusKm() {
   return outer_km * (screen_r_px / static_cast<float>(kGridOuterRadius));
 }
 
-bool useMiles() { return s_use_miles; }
+bool saveRangeFromPortal(const char* ring3_km_value) {
+  if (ring3_km_value == nullptr || ring3_km_value[0] == '\0') return false;
+  char* end = nullptr;
+  const float requested = strtof(ring3_km_value, &end);
+  if (end == ring3_km_value || (end != nullptr && *end != '\0')) return false;
 
+  for (size_t i = 0; i < kRangePresetCount; ++i) {
+    if (fabsf(kRangePresets[i].ring3_km - requested) < 0.1f) {
+      s_range_index = static_cast<uint8_t>(i);
+      saveRangeIndex();
+      Serial.printf("Radar/map range: %.0f km\n", requested);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool useMiles() { return s_use_miles; }
 bool showRunways() { return s_show_runways; }
 
 void saveMilesFromPortal(const char* checkbox_value) {
@@ -120,9 +125,11 @@ void formatCurrentRing3Label(char* buf, size_t len) {
 }
 
 void unitsReset() {
+  s_range_index = kDefaultRangeIndex;
   s_use_miles = false;
   s_show_runways = true;
   if (s_prefs.begin(kPrefsNamespace, false)) {
+    s_prefs.remove(kPrefsRangeKey);
     s_prefs.remove(kPrefsMilesKey);
     s_prefs.remove(kPrefsRunwaysKey);
     s_prefs.end();
