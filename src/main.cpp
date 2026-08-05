@@ -55,20 +55,21 @@ void fetchAndDrawAircraft() {
   const float fetch_km =
       configured_radius > 0.0f ? configured_radius : ui::radar::fetchRadiusKm();
 
-  // WiFiManager's always-on LAN portal consumes and fragments enough heap to
-  // prevent the ESP32-C3 TLS handshake. Stop it only for the network request,
-  // then allow wifiLoop() to reopen it afterward.
+  // Free the large off-screen frame and pause WiFiManager before TLS. After
+  // the response arrives, rebuild and push the complete frame while the portal
+  // is still paused. This keeps enough contiguous heap for both operations and
+  // prevents the visible line-by-line redraw blink.
+  ui::radarDisplayReleaseFrameForNetwork();
   wifiSuspendLanPortal();
+
   const bool fetched = services::adsb::fetchUpdate(
       services::location::lat(), services::location::lon(), fetch_km);
-  wifiResumeLanPortal();
 
-  if (!fetched) {
-    handleBootButton();
-    return;
+  if (fetched) {
+    ui::radarDisplayRefreshAircraft();
   }
 
-  ui::radarDisplayRefreshAircraft();
+  wifiResumeLanPortal();
   handleBootButton();
 }
 
