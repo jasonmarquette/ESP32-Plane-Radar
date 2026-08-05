@@ -57,6 +57,7 @@ constexpr char kWifiPrefsNamespace[] = "wifi";
 constexpr char kPrefsForcePortalKey[] = "portal";
 
 bool s_force_config_portal = false;
+bool s_lan_portal_suspended = false;
 WiFiManager s_wm;
 bool s_wm_configured = false;
 
@@ -279,7 +280,7 @@ void ensureWifiManager() {
 }
 
 void startLanWebPortal() {
-  if (!wifiLinkUp() || s_wm.getWebPortalActive() ||
+  if (s_lan_portal_suspended || !wifiLinkUp() || s_wm.getWebPortalActive() ||
       s_wm.getConfigPortalActive()) return;
   refreshPortalParamDefaults();
   WiFi.mode(WIFI_STA);
@@ -434,13 +435,27 @@ bool wifiReconnect() {
   return connectSavedNetwork(true);
 }
 
+void wifiSuspendLanPortal() {
+  s_lan_portal_suspended = true;
+  stopLanWebPortal();
+  delay(20);
+  Serial.printf("WiFi portal paused; heap %u largest %u\n",
+                ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+}
+
+void wifiResumeLanPortal() {
+  s_lan_portal_suspended = false;
+}
+
 void wifiLoop() {
   ensureWifiManager();
   if (wifiLinkUp()) {
-    if (!s_wm.getWebPortalActive() && !s_wm.getConfigPortalActive()) {
+    if (!s_lan_portal_suspended && !s_wm.getWebPortalActive() &&
+        !s_wm.getConfigPortalActive()) {
       startLanWebPortal();
     }
-    if (s_wm.getWebPortalActive() || s_wm.getConfigPortalActive()) {
+    if (!s_lan_portal_suspended &&
+        (s_wm.getWebPortalActive() || s_wm.getConfigPortalActive())) {
       bootButtonPollLongPress();
       s_wm.process();
     }
