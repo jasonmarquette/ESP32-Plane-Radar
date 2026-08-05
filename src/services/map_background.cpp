@@ -22,6 +22,8 @@ constexpr int kTileSizePx = 256;
 constexpr size_t kMaxApiKeyLen = 96;
 constexpr size_t kMaxTileBytes = 300 * 1024;
 constexpr unsigned long kRetryDelayMs = 60000UL;
+constexpr uint8_t kPngSignature[8] = {0x89, 0x50, 0x4e, 0x47,
+                                      0x0d, 0x0a, 0x1a, 0x0a};
 
 char s_api_key[kMaxApiKeyLen + 1] = {};
 bool s_initialized = false;
@@ -56,7 +58,12 @@ bool ensureFileSystem() {
   return s_fs_ready;
 }
 
+void closePngFile() {
+  if (s_png_file) s_png_file.close();
+}
+
 void clearTileFiles() {
+  closePngFile();
   if (!ensureFileSystem()) return;
   File root = LittleFS.open("/");
   if (!root || !root.isDirectory()) return;
@@ -71,6 +78,7 @@ void clearTileFiles() {
 }
 
 void* pngOpen(const char* filename, int32_t* size) {
+  closePngFile();
   s_png_file = LittleFS.open(filename, "r");
   if (!s_png_file) {
     *size = 0;
@@ -80,30 +88,42 @@ void* pngOpen(const char* filename, int32_t* size) {
   return &s_png_file;
 }
 
-void pngClose(void*) {
-  if (s_png_file) s_png_file.close();
+void pngClose(void* handle) {
+  File* file = static_cast<File*>(handle);
+  if (file && *file) file->close();
 }
 
-int32_t pngRead(PNGFILE*, uint8_t* buffer, int32_t length) {
-  return s_png_file ? static_cast<int32_t>(s_png_file.read(buffer, length)) : 0;
+int32_t pngRead(PNGFILE* handle, uint8_t* buffer, int32_t length) {
+  if (!handle || !handle->fHandle) return 0;
+  File* file = static_cast<File*>(handle->fHandle);
+  if (!file || !*file) return 0;
+  return static_cast<int32_t>(file->read(buffer, length));
 }
 
-int32_t pngSeek(PNGFILE*, int32_t position) {
-  return s_png_file && s_png_file.seek(position) ? position : 0;
+int32_t pngSeek(PNGFILE* handle, int32_t position) {
+  if (!handle || !handle->fHandle) return 0;
+  File* file = static_cast<File*>(handle->fHandle);
+  if (!file || !*file) return 0;
+  return file->seek(position) ? position : -1;
 }
 
 int pngDraw(PNGDRAW* draw) {
   if (!s_decode_target || !draw || draw->iWidth > kTileSizePx) return 0;
-  s_png.getLineAsRGB565(draw, s_png_line, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+
+  s_png.getLineAsRGB565(draw, s_png_line, PNG_RGB565_LITTLE_ENDIAN,
+                        0xffffffff);
 
   const int dest_x = s_decode_origin_x;
   const int dest_y = s_decode_origin_y + draw->y;
   if (dest_y < 0 || dest_y >= kMapSizePx || dest_x >= kMapSizePx ||
-      dest_x + draw->iWidth <= 0) return 1;
+      dest_x + draw->iWidth <= 0) {
+    return 1;
+  }
 
   const int src_x = std::max(0, -dest_x);
   const int clipped_x = std::max(0, dest_x);
-  const int clipped_w = std::min(draw->iWidth - src_x, kMapSizePx - clipped_x);
+  const int clipped_w =
+      std::min(draw->iWidth - src_x, kMapSizePx - clipped_x);
   if (clipped_w > 0) {
     s_decode_target->pushImage(clipped_x, dest_y, clipped_w, 1,
                                s_png_line + src_x);
@@ -126,6 +146,7 @@ TileView tileViewFor(double lat, double lon, float outer_radius_km) {
   const double world_px = static_cast<double>(1UL << view.zoom) * kTileSizePx;
   const double clipped_lat = std::max(-85.05112878, std::min(85.05112878, lat));
   const double lat_rad = clipped_lat * 0.017453292519943295;
+
   view.center_px_x = (lon + 180.0) / 360.0 * world_px;
   view.center_px_y =
       (1.0 - std::asinh(std::tan(lat_rad)) / M_PI) * 0.5 * world_px;
@@ -164,16 +185,36 @@ String tileUrl(int zoom, int x, int y) {
          zoom + '/' + x + '/' + y + ".png?key=" + s_api_key;
 }
 
+bool validPngFile(const String& path, bool log_failure) {
+  File file = LittleFS.open(path, "r");
+  if (!file) return false;
+
+  uint8_t signature[sizeof(kPngSignature)] = {};
+  const size_t read = file.read(signature, sizeof(signature));
+  file.close();
+
+  const bool valid =
+      read == sizeof(signature) &&
+      std::memcmp(signature, kPngSignature, sizeof(kPngSignature)) == 0;
+  if (!valid && log_failure) {
+    Serial.printf("map: invalid PNG signature %s:", path.c_str());
+    for (size_t i = 0; i < read; ++i) Serial.printf(" %02X", signature[i]);
+    Serial.println();
+  }
+  return valid;
+}
+
 bool allTilesCached(const TileView& view) {
   if (!ensureFileSystem() || s_invalidated || !sameView(view, s_cache)) {
     return false;
   }
+
   const int tile_count = 1 << view.zoom;
   for (int raw_y = view.min_y; raw_y <= view.max_y; ++raw_y) {
     if (raw_y < 0 || raw_y >= tile_count) return false;
     for (int raw_x = view.min_x; raw_x <= view.max_x; ++raw_x) {
       const int x = wrapTileX(raw_x, view.zoom);
-      if (!LittleFS.exists(tilePath(view.zoom, x, raw_y))) return false;
+      if (!validPngFile(tilePath(view.zoom, x, raw_y), false)) return false;
     }
   }
   return true;
@@ -193,6 +234,8 @@ bool downloadTile(int zoom, int x, int y, const String& path) {
   }
   http.setTimeout(15000);
   http.setReuse(false);
+  http.addHeader("Accept", "image/png");
+  http.addHeader("Accept-Encoding", "identity");
 
   const int status = http.GET();
   if (status != HTTP_CODE_OK) {
@@ -201,11 +244,12 @@ bool downloadTile(int zoom, int x, int y, const String& path) {
     return false;
   }
 
+  const String content_type = http.header("Content-Type");
   const int content_length = http.getSize();
   if (content_length <= 0 ||
       static_cast<size_t>(content_length) > kMaxTileBytes) {
-    Serial.printf("map: tile %d/%d/%d invalid size %d\n", zoom, x, y,
-                  content_length);
+    Serial.printf("map: tile %d/%d/%d invalid size %d type %s\n", zoom, x, y,
+                  content_length, content_type.c_str());
     http.end();
     return false;
   }
@@ -220,19 +264,28 @@ bool downloadTile(int zoom, int x, int y, const String& path) {
   const int written = http.writeToStream(&file);
   file.close();
   http.end();
+
   if (written != content_length) {
     Serial.printf("map: tile short write %d/%d\n", written, content_length);
     LittleFS.remove(path);
     return false;
   }
 
-  Serial.printf("map: cached PNG tile %d/%d/%d (%d bytes)\n", zoom, x, y,
-                written);
+  if (!validPngFile(path, true)) {
+    Serial.printf("map: rejected tile %d/%d/%d type %s (%d bytes)\n", zoom, x,
+                  y, content_type.c_str(), written);
+    LittleFS.remove(path);
+    return false;
+  }
+
+  Serial.printf("map: cached PNG tile %d/%d/%d (%d bytes, %s)\n", zoom, x, y,
+                written, content_type.c_str());
   return true;
 }
 
 bool ensureTiles(const TileView& view) {
   if (WiFi.status() != WL_CONNECTED || !ensureFileSystem()) return false;
+
   if (!sameView(view, s_cache) || s_invalidated) {
     clearTileFiles();
     s_cache = TileView{};
@@ -244,9 +297,9 @@ bool ensureTiles(const TileView& view) {
     for (int raw_x = view.min_x; raw_x <= view.max_x; ++raw_x) {
       const int x = wrapTileX(raw_x, view.zoom);
       const String path = tilePath(view.zoom, x, raw_y);
-      if (!LittleFS.exists(path) &&
-          !downloadTile(view.zoom, x, raw_y, path)) {
-        return false;
+      if (!validPngFile(path, false)) {
+        LittleFS.remove(path);
+        if (!downloadTile(view.zoom, x, raw_y, path)) return false;
       }
       delay(1);
     }
@@ -270,6 +323,11 @@ bool recreateTarget(LGFX_Sprite& target) {
 
 bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
                 int origin_y) {
+  if (!validPngFile(path, true)) {
+    LittleFS.remove(path);
+    return false;
+  }
+
   s_decode_target = &target;
   s_decode_origin_x = origin_x;
   s_decode_origin_y = origin_y;
@@ -277,6 +335,7 @@ bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
   const int open_result =
       s_png.open(path.c_str(), pngOpen, pngClose, pngRead, pngSeek, pngDraw);
   if (open_result != PNG_SUCCESS) {
+    closePngFile();
     s_decode_target = nullptr;
     Serial.printf("map: tile PNG open failed %s (%d)\n", path.c_str(),
                   open_result);
@@ -286,7 +345,9 @@ bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
 
   const int result = s_png.decode(nullptr, 0);
   s_png.close();
+  closePngFile();
   s_decode_target = nullptr;
+
   if (result != PNG_SUCCESS) {
     Serial.printf("map: tile PNG decode failed %s (%d)\n", path.c_str(),
                   result);
@@ -299,6 +360,7 @@ bool decodeTile(LGFX_Sprite& target, const String& path, int origin_x,
 bool drawTiles(LGFX_Sprite& target, const TileView& view) {
   const double left = view.center_px_x - kMapSizePx * 0.5;
   const double top = view.center_px_y - kMapSizePx * 0.5;
+
   for (int raw_y = view.min_y; raw_y <= view.max_y; ++raw_y) {
     for (int raw_x = view.min_x; raw_x <= view.max_x; ++raw_x) {
       const int x = wrapTileX(raw_x, view.zoom);
@@ -319,6 +381,7 @@ bool drawTiles(LGFX_Sprite& target, const TileView& view) {
 
 void init() {
   if (s_initialized) return;
+
   Preferences prefs;
   if (prefs.begin(kPrefsNamespace, true)) {
     prefs.getString(kPrefsApiKey, "")
@@ -344,6 +407,7 @@ void saveApiKey(const char* key) {
   init();
   std::strncpy(s_api_key, key ? key : "", kMaxApiKeyLen);
   s_api_key[kMaxApiKeyLen] = '\0';
+
   Preferences prefs;
   if (prefs.begin(kPrefsNamespace, false)) {
     if (s_api_key[0] == '\0')
@@ -377,8 +441,6 @@ bool draw(LGFX_Sprite& target, double lat, double lon, float outer_radius_km) {
 
   const TileView view = tileViewFor(lat, lon, outer_radius_km);
   if (!allTilesCached(view)) {
-    // The 320x320 8-bit frame consumes about 100 KB. Release it while TLS
-    // downloads tiles one at a time, then recreate it before PNG rendering.
     target.deleteSprite();
     Serial.printf("map: released radar sprite; heap %u largest %u\n",
                   ESP.getFreeHeap(), ESP.getMaxAllocHeap());
