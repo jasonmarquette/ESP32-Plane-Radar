@@ -2,10 +2,16 @@
 
 namespace ui {
 
-/** Draw the static sonar/radar grid (black disc, green overlay, labels). */
+/** Draw the complete radar display. */
 void radarDisplayDraw();
 
-/** Redraw aircraft only (blits cached grid; no full-screen clear). */
+/** Redraw the radar after new aircraft data arrives. */
 void radarDisplayRefreshAircraft();
+
+/**
+ * Release the temporary 320x320 frame buffer before TLS/network work.
+ * The next draw recreates it only long enough to compose and push one frame.
+ */
+void radarDisplayReleaseFrameForNetwork();
 
 }  // namespace ui
