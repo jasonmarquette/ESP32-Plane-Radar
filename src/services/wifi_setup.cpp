@@ -45,9 +45,7 @@ void IRAM_ATTR onBootButtonIsr() {
 
 void initBootButton() {
   pinMode(config::kBootPin, INPUT_PULLUP);
-  if (s_boot_interrupt_attached) {
-    return;
-  }
+  if (s_boot_interrupt_attached) return;
   attachInterrupt(digitalPinToInterrupt(static_cast<uint8_t>(config::kBootPin)),
                   onBootButtonIsr, CHANGE);
   s_boot_interrupt_attached = true;
@@ -68,16 +66,33 @@ void stopLanWebPortal();
 bool wifiLinkUp();
 
 constexpr int kCoordParamLen = 20;
+constexpr int kIcaoParamLen = 7;
+constexpr int kRadiusParamLen = 8;
+constexpr int kRangeParamLen = 4;
 constexpr int kMapKeyParamLen = 96;
 constexpr char kCoordInputAttrs[] =
     " type=\"number\" step=\"0.000001\"";
+constexpr char kIcaoInputAttrs[] =
+    " maxlength=\"7\" autocapitalize=\"characters\"";
+constexpr char kRadiusInputAttrs[] =
+    " type=\"number\" min=\"1\" max=\"500\" step=\"1\" placeholder=\"Auto\"";
+constexpr char kRangeInputAttrs[] =
+    " type=\"number\" min=\"5\" max=\"25\" step=\"5\"";
 constexpr char kMapKeyInputAttrs[] =
     " type=\"password\" autocomplete=\"off\" maxlength=\"96\"";
 
+WiFiManagerParameter s_param_icao("station_icao", "Airport / station ICAO (optional)",
+                                  "", kIcaoParamLen, kIcaoInputAttrs);
 WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
                                  kCoordParamLen, kCoordInputAttrs);
 WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
                                  kCoordParamLen, kCoordInputAttrs);
+WiFiManagerParameter s_param_adsb_radius(
+    "adsb_radius", "ADS-B search radius km (blank = automatic)", "",
+    kRadiusParamLen, kRadiusInputAttrs);
+WiFiManagerParameter s_param_range(
+    "radar_range", "Radar / map range km (5, 10, 15, or 25)", "10",
+    kRangeParamLen, kRangeInputAttrs);
 WiFiManagerParameter s_param_map_key(
     "maptiler_key", "MapTiler API key (blank disables map)", "",
     kMapKeyParamLen, kMapKeyInputAttrs);
@@ -93,10 +108,23 @@ WiFiManagerParameter s_param_runways("show_runways", "Show airport runways", "T"
 void refreshPortalParamDefaults() {
   char lat_buf[kCoordParamLen + 1];
   char lon_buf[kCoordParamLen + 1];
+  char radius_buf[kRadiusParamLen + 1] = {};
+  char range_buf[kRangeParamLen + 1];
+
   snprintf(lat_buf, sizeof(lat_buf), "%.6f", services::location::lat());
   snprintf(lon_buf, sizeof(lon_buf), "%.6f", services::location::lon());
+  if (services::location::adsbRadiusKm() > 0.0f) {
+    snprintf(radius_buf, sizeof(radius_buf), "%.0f",
+             services::location::adsbRadiusKm());
+  }
+  snprintf(range_buf, sizeof(range_buf), "%.0f",
+           ui::radar::rangeCurrent().ring3_km);
+
+  s_param_icao.setValue(services::location::icao(), kIcaoParamLen);
   s_param_lat.setValue(lat_buf, kCoordParamLen);
   s_param_lon.setValue(lon_buf, kCoordParamLen);
+  s_param_adsb_radius.setValue(radius_buf, kRadiusParamLen);
+  s_param_range.setValue(range_buf, kRangeParamLen);
   s_param_map_key.setValue(services::map_background::apiKey(),
                            kMapKeyParamLen);
 
@@ -112,14 +140,22 @@ void refreshPortalParamDefaults() {
 void onPortalParamsSaved() {
   const double old_lat = services::location::lat();
   const double old_lon = services::location::lon();
+  const uint8_t old_range = ui::radar::rangeIndex();
 
-  if (!services::location::saveFromStrings(s_param_lat.getValue(),
-                                            s_param_lon.getValue())) {
-    Serial.println("Invalid lat/lon in portal — keeping previous location");
+  if (!services::location::saveSettingsFromStrings(
+          s_param_lat.getValue(), s_param_lon.getValue(),
+          s_param_icao.getValue(), s_param_adsb_radius.getValue())) {
+    Serial.println("Invalid station settings — keeping previous values");
+  }
+
+  if (!ui::radar::saveRangeFromPortal(s_param_range.getValue())) {
+    Serial.println("Invalid radar/map range — use 5, 10, 15, or 25 km");
   }
 
   services::map_background::saveApiKey(s_param_map_key.getValue());
-  if (old_lat != services::location::lat() || old_lon != services::location::lon()) {
+  if (old_lat != services::location::lat() ||
+      old_lon != services::location::lon() ||
+      old_range != ui::radar::rangeIndex()) {
     services::map_background::invalidate();
   }
 
@@ -129,8 +165,11 @@ void onPortalParamsSaved() {
 
 void attachPortalParams(WiFiManager& wm) {
   refreshPortalParamDefaults();
+  wm.addParameter(&s_param_icao);
   wm.addParameter(&s_param_lat);
   wm.addParameter(&s_param_lon);
+  wm.addParameter(&s_param_adsb_radius);
+  wm.addParameter(&s_param_range);
   wm.addParameter(&s_param_map_key);
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
@@ -140,9 +179,7 @@ void attachPortalParams(WiFiManager& wm) {
 void markForceConfigPortal() {
   s_force_config_portal = true;
   Preferences prefs;
-  if (!prefs.begin(kWifiPrefsNamespace, false)) {
-    return;
-  }
+  if (!prefs.begin(kWifiPrefsNamespace, false)) return;
   prefs.putBool(kPrefsForcePortalKey, true);
   prefs.end();
 }
@@ -159,14 +196,10 @@ bool consumeForceConfigPortal() {
   }
 
   Preferences prefs;
-  if (!prefs.begin(kWifiPrefsNamespace, true)) {
-    return false;
-  }
+  if (!prefs.begin(kWifiPrefsNamespace, true)) return false;
   const bool pending = prefs.getBool(kPrefsForcePortalKey, false);
   prefs.end();
-  if (!pending) {
-    return false;
-  }
+  if (!pending) return false;
 
   if (prefs.begin(kWifiPrefsNamespace, false)) {
     prefs.remove(kPrefsForcePortalKey);
@@ -183,9 +216,7 @@ bool storedWifiCredentials() {
   }
 
   wifi_config_t conf = {};
-  if (esp_wifi_get_config(WIFI_IF_STA, &conf) != ESP_OK) {
-    return false;
-  }
+  if (esp_wifi_get_config(WIFI_IF_STA, &conf) != ESP_OK) return false;
   return conf.sta.ssid[0] != '\0';
 }
 
@@ -212,7 +243,7 @@ void resetWifiCredentials() {
   services::location::clear();
   services::map_background::clear();
   ui::radar::unitsReset();
-  Serial.println("WiFi credentials, location, units, and map key cleared");
+  Serial.println("WiFi, station, range, units, and map settings cleared");
 }
 
 void onConfigPortalApStarted(WiFiManager*) {
@@ -223,7 +254,8 @@ void onConfigPortalApStarted(WiFiManager*) {
     Serial.printf("Setup portal: http://%s.local (or http://%s)\n",
                   config::kPortalHostname, config::kPortalIp);
   } else {
-    Serial.printf("Setup portal: http://%s (mDNS unavailable)\n", config::kPortalIp);
+    Serial.printf("Setup portal: http://%s (mDNS unavailable)\n",
+                  config::kPortalIp);
   }
 #else
   Serial.printf("Setup portal: http://%s\n", config::kPortalIp);
@@ -236,9 +268,7 @@ bool wifiLinkUp() {
 }
 
 void ensureWifiManager() {
-  if (s_wm_configured) {
-    return;
-  }
+  if (s_wm_configured) return;
   s_wm.setConfigPortalTimeout(config::kWifiPortalTimeoutSec);
   s_wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
                            IPAddress(255, 255, 255, 0));
@@ -250,9 +280,7 @@ void ensureWifiManager() {
 
 void startLanWebPortal() {
   if (!wifiLinkUp() || s_wm.getWebPortalActive() ||
-      s_wm.getConfigPortalActive()) {
-    return;
-  }
+      s_wm.getConfigPortalActive()) return;
   refreshPortalParamDefaults();
   WiFi.mode(WIFI_STA);
   s_wm.setConfigPortalBlocking(false);
@@ -268,9 +296,7 @@ void startLanWebPortal() {
 }
 
 void stopLanWebPortal() {
-  if (!s_wm.getWebPortalActive()) {
-    return;
-  }
+  if (!s_wm.getWebPortalActive()) return;
   s_wm.stopWebPortal();
 #ifdef WM_MDNS
   MDNS.end();
@@ -285,19 +311,14 @@ void prepareSta() {
 
 void startStaConnect(const String& ssid, const String& pass) {
   prepareSta();
-  if (ssid.length() > 0) {
-    WiFi.begin(ssid.c_str(), pass.c_str());
-  } else {
-    WiFi.begin();
-  }
+  if (ssid.length() > 0) WiFi.begin(ssid.c_str(), pass.c_str());
+  else WiFi.begin();
 }
 
 bool waitForLinkWithUi(const char* ssid_for_ui, unsigned long attempt_ms) {
   const unsigned long deadline = millis() + attempt_ms;
   while (millis() < deadline) {
-    if (wifiLinkUp()) {
-      return true;
-    }
+    if (wifiLinkUp()) return true;
     bootButtonPollLongPress();
     statusScreenConnectingTick();
     delay(config::kWifiConnectingFrameMs);
@@ -306,14 +327,10 @@ bool waitForLinkWithUi(const char* ssid_for_ui, unsigned long attempt_ms) {
 }
 
 bool tryConnectWithUi(const String& ssid, const String& pass, bool show_ui) {
-  if (wifiLinkUp()) {
-    return true;
-  }
+  if (wifiLinkUp()) return true;
 
   const char* ui_ssid = ssid.length() > 0 ? ssid.c_str() : "network";
-  if (show_ui) {
-    statusScreenConnectingBegin(ui_ssid);
-  }
+  if (show_ui) statusScreenConnectingBegin(ui_ssid);
 
   for (uint8_t attempt = 1; attempt <= config::kWifiConnectAttempts; ++attempt) {
     if (attempt > 1) {
@@ -325,23 +342,17 @@ bool tryConnectWithUi(const String& ssid, const String& pass, bool show_ui) {
     }
 
     startStaConnect(ssid, pass);
-    if (waitForLinkWithUi(ui_ssid, config::kWifiConnectAttemptMs)) {
-      return true;
-    }
+    if (waitForLinkWithUi(ui_ssid, config::kWifiConnectAttemptMs)) return true;
   }
   return false;
 }
 
 bool connectSavedNetwork(bool show_ui) {
-  if (!storedWifiCredentials()) {
-    return false;
-  }
+  if (!storedWifiCredentials()) return false;
 
   ensureWifiManager();
   const String ssid = s_wm.getWiFiSSID();
-  if (ssid.length() == 0) {
-    return false;
-  }
+  if (ssid.length() == 0) return false;
   return tryConnectWithUi(ssid, s_wm.getWiFiPass(), show_ui);
 }
 
@@ -355,9 +366,7 @@ bool openConfigPortal() {
   s_wm.startConfigPortal(config::kPortalApName);
   while (s_wm.getConfigPortalActive()) {
     bootButtonPollLongPress();
-    if (s_wm.process()) {
-      return true;
-    }
+    if (s_wm.process()) return true;
     delay(10);
   }
   return wifiLinkUp();
@@ -366,13 +375,9 @@ bool openConfigPortal() {
 }  // namespace
 
 bool wifiShowsSetupScreenOnBoot() {
-  if (s_force_config_portal) {
-    return true;
-  }
+  if (s_force_config_portal) return true;
   Preferences prefs;
-  if (!prefs.begin(kWifiPrefsNamespace, true)) {
-    return false;
-  }
+  if (!prefs.begin(kWifiPrefsNamespace, true)) return false;
   const bool pending = prefs.getBool(kPrefsForcePortalKey, false);
   prefs.end();
   return pending;
@@ -387,9 +392,7 @@ void bootButtonInit() { initBootButton(); }
 bool bootButtonConsumeTap() {
   portENTER_CRITICAL(&s_boot_mux);
   const bool tap = s_boot_tap_pending;
-  if (tap) {
-    s_boot_tap_pending = false;
-  }
+  if (tap) s_boot_tap_pending = false;
   portEXIT_CRITICAL(&s_boot_mux);
   return tap;
 }
