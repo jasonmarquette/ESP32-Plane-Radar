@@ -14,13 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_H = ROOT / "include" / "data" / "large_airports.h"
 OUT_CPP = ROOT / "src" / "data" / "large_airports_data.cpp"
 
+# Pin the OurAirports dataset so generated output is reproducible.
+OURAIRPORTS_REV = "0ad87894dba39574021acd6b61adada2a71dd439"
 AIRPORTS_URL = (
-    "https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/"
-    "airports.csv"
+    "https://raw.githubusercontent.com/davidmegginson/ourairports-data/"
+    f"{OURAIRPORTS_REV}/airports.csv"
 )
 RUNWAYS_URL = (
-    "https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/"
-    "runways.csv"
+    "https://raw.githubusercontent.com/davidmegginson/ourairports-data/"
+    f"{OURAIRPORTS_REV}/runways.csv"
 )
 
 def fetch_csv(url: str) -> list[dict[str, str]]:
