@@ -244,6 +244,11 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   const DeserializationError err = deserializeJson(doc, payload);
   if (err) {
     Serial.printf("adsb: JSON parse error: %s\n", err.c_str());
+    Serial.printf("adsb: payload length: %u\n",
+                  static_cast<unsigned>(payload.length()));
+    Serial.println("----- ADSB RESPONSE START -----");
+    Serial.println(payload);
+    Serial.println("----- ADSB RESPONSE END -----");
     return false;
   }
 
