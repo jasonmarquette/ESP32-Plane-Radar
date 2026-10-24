@@ -99,5 +99,6 @@ extern uint16_t kColorTagType;
 extern uint16_t kColorTagAltitude;
 extern uint16_t kColorRunway;
 extern uint16_t kColorRunwayLabel;
+extern uint16_t kColorTagDestination;
 
 }  // namespace ui::radar

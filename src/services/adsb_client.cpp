@@ -1,16 +1,16 @@
+
 #include "services/adsb_client.h"
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-
 #include <ArduinoJson.h>
-
 #include <cstring>
+#include <cmath>
 
 #include "config.h"
+#include "services/route_lookup.h"
 
 namespace services::adsb {
-
 namespace {
 
 constexpr char kApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
@@ -18,25 +18,24 @@ constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
 
-Aircraft s_aircraft[kMaxAircraft];
+Aircraft s_aircraft[kMaxAircraft] = {};
 size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
 
 void pollNetwork() {
-  if (s_poll_fn != nullptr) {
-    s_poll_fn();
-  }
+  if (s_poll_fn != nullptr) s_poll_fn();
 }
 
 int performGetWithPoll(HTTPClient& http) {
   http.setConnectTimeout(kConnectAttemptMs);
-  const unsigned long deadline = millis() + kRequestTimeoutMs;
-  while (millis() < deadline) {
+  const unsigned long start = millis();
+
+  while (millis() - start < kRequestTimeoutMs) {
     pollNetwork();
     const int code = http.GET();
-    if (code > 0) {
-      return code;
-    }
+
+    if (code > 0) return code;
+
     if (code != HTTPC_ERROR_CONNECTION_REFUSED &&
         code != HTTPC_ERROR_NOT_CONNECTED) {
       return code;
@@ -47,19 +46,15 @@ int performGetWithPoll(HTTPClient& http) {
 }
 
 bool readResponseBodyWithPoll(HTTPClient& http, String& payload) {
-  // Let HTTPClient decode the response body. Reading getStreamPtr() directly
-  // exposes HTTP chunk framing (for example "65\r\n...\r\n0\r\n\r\n") when
-  // the server uses Transfer-Encoding: chunked, which is not valid JSON.
   pollNetwork();
   payload = http.getString();
   pollNetwork();
   return payload.length() > 0;
 }
 
-float kmToNauticalMiles(float km) { return km / kKmPerNm; }
-
 bool readJsonFloat(const JsonObject& obj, const char* key, float* out) {
-  if (obj[key].is<float>() || obj[key].is<double>() || obj[key].is<int>()) {
+  if (obj[key].is<float>() || obj[key].is<double>() ||
+      obj[key].is<int>()) {
     *out = obj[key].as<float>();
     return true;
   }
@@ -67,104 +62,89 @@ bool readJsonFloat(const JsonObject& obj, const char* key, float* out) {
 }
 
 float pickNoseHeading(const JsonObject& plane) {
-  float v = 0.0f;
-  if (readJsonFloat(plane, "true_heading", &v)) {
-    return v;
+  float v = 0;
+  for (const char* key :
+       {"true_heading", "mag_heading", "track", "dir"}) {
+    if (readJsonFloat(plane, key, &v)) return v;
   }
-  if (readJsonFloat(plane, "mag_heading", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "track", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "dir", &v)) {
-    return v;
-  }
-  return 0.0f;
+  return 0;
 }
 
 float pickTrackHeading(const JsonObject& plane) {
-  float v = 0.0f;
-  if (readJsonFloat(plane, "track", &v)) {
-    return v;
+  float v = 0;
+  for (const char* key :
+       {"track", "true_heading", "mag_heading", "dir"}) {
+    if (readJsonFloat(plane, key, &v)) return v;
   }
-  if (readJsonFloat(plane, "true_heading", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "mag_heading", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "dir", &v)) {
-    return v;
-  }
-  return 0.0f;
+  return 0;
 }
 
 float pickGroundSpeed(const JsonObject& plane) {
-  float v = 0.0f;
-  if (readJsonFloat(plane, "gs", &v)) {
-    return v;
+  float v = 0;
+  for (const char* key : {"gs", "tas", "ias"}) {
+    if (readJsonFloat(plane, key, &v)) return v;
   }
-  if (readJsonFloat(plane, "tas", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "ias", &v)) {
-    return v;
-  }
-  return 0.0f;
+  return 0;
 }
 
 bool isOnGround(const JsonObject& plane) {
-  if (!plane["alt_baro"].is<const char*>()) {
-    return false;
-  }
-  return strcmp(plane["alt_baro"].as<const char*>(), "ground") == 0;
+  return plane["alt_baro"].is<const char*>() &&
+         strcmp(plane["alt_baro"].as<const char*>(), "ground") == 0;
 }
 
-void copyJsonStringTrimmed(const JsonObject& obj, const char* key, char* out,
-                           size_t out_len) {
+void copyJsonStringTrimmed(const JsonObject& obj,
+                           const char* key,
+                           char* out, size_t out_len) {
+  if (out_len == 0) return;
   out[0] = '\0';
-  if (out_len == 0 || !obj[key].is<const char*>()) {
-    return;
-  }
+
+  if (!obj[key].is<const char*>()) return;
+
   const char* s = obj[key].as<const char*>();
   size_t n = strnlen(s, out_len - 1);
-  while (n > 0 && s[n - 1] == ' ') {
-    --n;
-  }
+
+  while (n > 0 && s[n - 1] == ' ') --n;
+
   memcpy(out, s, n);
   out[n] = '\0';
 }
 
-void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
+void formatAltitudeTag(const JsonObject& plane,
+                       char* out, size_t out_len) {
+  if (out_len == 0) return;
   out[0] = '\0';
-  if (out_len == 0) {
+
+  if (isOnGround(plane)) {
+    snprintf(out, out_len, "GND");
     return;
   }
 
-  if (plane["alt_baro"].is<const char*>()) {
-    const char* s = plane["alt_baro"].as<const char*>();
-    if (strcmp(s, "ground") == 0) {
-      strncpy(out, "GND", out_len - 1);
-      out[out_len - 1] = '\0';
-      return;
-    }
-  }
-
-  float alt = 0.0f;
+  float alt = 0;
   if (readJsonFloat(plane, "alt_baro", &alt) ||
       readJsonFloat(plane, "alt_geom", &alt)) {
-    snprintf(out, out_len, "%d ft", static_cast<int>(lroundf(alt)));
+    snprintf(out, out_len, "%d ft",
+             static_cast<int>(lroundf(alt)));
   }
 }
 
 void fillTagFields(Aircraft* ac, const JsonObject& plane) {
-  copyJsonStringTrimmed(plane, "flight", ac->callsign, sizeof(ac->callsign));
-  if (ac->callsign[0] == '\0') {
-    copyJsonStringTrimmed(plane, "hex", ac->callsign, sizeof(ac->callsign));
+  ac->destination[0] = '\0';
+
+  copyJsonStringTrimmed(
+      plane, "flight", ac->callsign, sizeof(ac->callsign));
+
+  // Only actual flight callsigns can be used for route lookups.
+  if (ac->callsign[0] != '\0') {
+    routes::getCachedDestination(
+        ac->callsign, ac->destination, sizeof(ac->destination));
+  } else {
+    copyJsonStringTrimmed(
+        plane, "hex", ac->callsign, sizeof(ac->callsign));
   }
 
-  copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
+  copyJsonStringTrimmed(
+      plane, "t", ac->type, sizeof(ac->type));
+
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
 }
 
@@ -176,8 +156,9 @@ size_t aircraftCount() { return s_aircraft_count; }
 
 const Aircraft* aircraftList() { return s_aircraft; }
 
-bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
-  const float dist_nm = kmToNauticalMiles(fetch_radius_km);
+bool fetchUpdate(double center_lat, double center_lon,
+                 float fetch_radius_km) {
+  const float dist_nm = fetch_radius_km / kKmPerNm;
 
   String url = kApiBase;
   url += String(center_lat, 6);
@@ -186,6 +167,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   url += "/dist/";
   url += String(dist_nm, 1);
 
+  {
   WiFiClientSecure client;
   client.setInsecure();
 
@@ -196,6 +178,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   }
 
   http.setTimeout(kRequestTimeoutMs);
+
   const int code = performGetWithPoll(http);
   if (code != HTTP_CODE_OK) {
     Serial.printf("adsb: HTTP %d\n", code);
@@ -210,9 +193,12 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     return false;
   }
   http.end();
+{
+
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(doc, payload);
+
   if (err) {
     Serial.printf("adsb: JSON parse error: %s\n", err.c_str());
     Serial.printf("adsb: payload length: %u\n",
@@ -230,28 +216,39 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   }
 
   size_t n = 0;
-  for (JsonObject plane : ac) {
-    if (n >= kMaxAircraft) {
-      break;
-    }
-    if (!plane["lat"].is<float>() || !plane["lon"].is<float>()) {
-      continue;
-    }
-    if (isOnGround(plane) && !config::kAdsbShowGroundAircraft) {
-      continue;
-    }
 
-    s_aircraft[n].lat = plane["lat"].as<float>();
-    s_aircraft[n].lon = plane["lon"].as<float>();
-    s_aircraft[n].nose_deg = pickNoseHeading(plane);
-    s_aircraft[n].track_deg = pickTrackHeading(plane);
-    s_aircraft[n].gs_knots = pickGroundSpeed(plane);
-    fillTagFields(&s_aircraft[n], plane);
+  for (JsonObject plane : ac) {
+    if (n >= kMaxAircraft) break;
+
+    if (!plane["lat"].is<float>() ||
+        !plane["lon"].is<float>()) continue;
+
+    if (isOnGround(plane) &&
+        !config::kAdsbShowGroundAircraft) continue;
+
+    Aircraft& aircraft = s_aircraft[n];
+
+    aircraft.lat = plane["lat"].as<float>();
+    aircraft.lon = plane["lon"].as<float>();
+    aircraft.nose_deg = pickNoseHeading(plane);
+    aircraft.track_deg = pickTrackHeading(plane);
+    aircraft.gs_knots = pickGroundSpeed(plane);
+
+    fillTagFields(&aircraft, plane);
     ++n;
   }
 
-  s_aircraft_count = n;
-  Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
+      s_aircraft_count = n;
+  }  // Release the parsed ADS-B JSON document.
+  }  // Release the ADS-B HTTP and TLS objects.
+
+  // ADS-B response, JSON, HTTP, and TLS objects are now
+  // out of scope before starting the destination lookup.
+  routes::updateOne(s_aircraft, s_aircraft_count);
+
+    Serial.printf("adsb: %u aircraft\n",
+                static_cast<unsigned>(s_aircraft_count));
+
   return true;
 }
 

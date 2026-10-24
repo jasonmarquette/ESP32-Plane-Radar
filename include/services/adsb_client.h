@@ -13,6 +13,7 @@ struct Aircraft {
   char callsign[9];
   char type[5];
   char alt[12];
+  char destination[5];  // ICAO destination airport code
 };
 
 constexpr size_t kMaxAircraft = 64;
