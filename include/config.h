@@ -55,6 +55,13 @@ constexpr float kAdsbFetchRadiusScale = 1.0f;
 /** false = hide aircraft with alt_baro "ground"; true = show them too. */
 constexpr bool kAdsbShowGroundAircraft = false;
 
+// --- Clock (right-hand aircraft panel) ---
+// POSIX timezone string for America/Chicago, including US daylight saving time.
+// Change this when the radar is installed in another timezone.
+constexpr char kTimeZone[] = "CST6CDT,M3.2.0,M11.1.0";
+constexpr char kNtpServer1[] = "pool.ntp.org";
+constexpr char kNtpServer2[] = "time.nist.gov";
+
 // --- UI colors (RGB565) — status screens ---
 constexpr uint16_t kColorBlack = 0x0000;
 constexpr uint16_t kColorYellow = 0xFFE0;

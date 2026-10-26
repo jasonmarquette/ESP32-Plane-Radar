@@ -8,4 +8,7 @@ void radarDisplayDraw();
 /** Redraw aircraft only (blits cached grid; no full-screen clear). */
 void radarDisplayRefreshAircraft();
 
+/** Update right-panel pagination and clock without disturbing the radar. */
+void radarDisplayTick();
+
 }  // namespace ui

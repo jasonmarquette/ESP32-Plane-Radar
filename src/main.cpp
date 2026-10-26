@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 
 #include "config.h"
 #include "hardware/display.h"
@@ -20,11 +21,17 @@ bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
+bool g_clock_sync_started = false;
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
     g_radar_visible = false;
     return;
+  }
+  if (!g_clock_sync_started) {
+    configTzTime(config::kTimeZone, config::kNtpServer1,
+                 config::kNtpServer2);
+    g_clock_sync_started = true;
   }
   ui::radarDisplayDraw();
   g_radar_visible = true;
@@ -112,6 +119,9 @@ void loop() {
     } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
       g_last_adsb_fetch_ms = millis();
       fetchAndDrawAircraft();
+    }
+    if (g_radar_visible) {
+      ui::radarDisplayTick();
     }
   }
 

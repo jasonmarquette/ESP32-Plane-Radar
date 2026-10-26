@@ -21,7 +21,7 @@ Display settings:
 - Driver: LovyanGFX `Panel_ILI9488`
 - Resolution: 480x320 landscape
 - Radar area: left 320x320
-- Info panel: right 160x320
+- Detected-aircraft panel: right 160x320
 
 
 ## Screenshot
@@ -38,6 +38,12 @@ Firmware for an **ESP32-C3 Super Mini** and a **ILI9488 3.5" 480x320 Display** d
 2. **Radar** — live aircraft from [adsb.fi](https://opendata.adsb.fi/) on a sonar-style grid
 
 After Wi‑Fi is saved, the device reconnects automatically; the radar runs in the main loop with periodic ADS-B updates (~5 s).
+
+The right panel lists up to 10 aircraft per page, nearest first, with callsign,
+distance, altitude, speed, and an on-radar/off-radar indicator. The status strip
+keeps the active radar range visible. Additional pages advance automatically
+every 5 seconds. A network-synchronized local clock is shown at the bottom; its
+POSIX timezone is configured with `kTimeZone`.
 
 ## Controls (BOOT, GPIO 9, active LOW)
 
@@ -143,6 +149,7 @@ Edit **`include/config.h`** for hardware and behavior:
 | Display SPI | pins, `kDisplayInvert`, `kDisplayRgbOrder`, `kDisplaySpiWriteHz` |
 | Default location | `kDefaultRadarLat`, `kDefaultRadarLon` (until portal overrides) |
 | ADS-B | `kAdsbFetchIntervalMs`, `kAdsbShowGroundAircraft` |
+| Clock | `kTimeZone`, `kNtpServer1`, `kNtpServer2` |
 
 Range presets: `include/ui/radar_range.h` (`kRangePresets`).
 
