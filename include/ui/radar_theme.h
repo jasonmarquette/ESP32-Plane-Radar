@@ -59,8 +59,8 @@ constexpr int kAircraftInsideRingInsetPx =
 /** Beyond-ring traffic: bearing cues on screen rim (correct direction, fixed radius). */
 constexpr int kBeyondRingDotRadiusPx = 4;
 constexpr int kBeyondRingScreenMarginPx = 2;
-/** Target cap height (px) for aircraft tags (bold, slightly above scale label). */
-constexpr int kAircraftTagLabelHeightPx = 13;
+/** Compact target cap height (px) for callsign/type/altitude aircraft tags. */
+constexpr int kAircraftTagLabelHeightPx = 11;
 
 /** RGB565 palette targets (applied in initPalette). */
 constexpr uint8_t kBgR = 4;
