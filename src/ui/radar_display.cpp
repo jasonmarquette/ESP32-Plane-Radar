@@ -58,6 +58,11 @@ int s_scale_label_h = 0;
 lgfx::LovyanGFX* s_draw = &tft;
 LGFX_Sprite s_frame(&tft);
 bool s_frame_ready = false;
+LGFX_Sprite s_panel_row(&tft);
+LGFX_Sprite s_panel_clock(&tft);
+bool s_panel_row_ready = false;
+bool s_panel_clock_ready = false;
+bool s_panel_static_drawn = false;
 
 constexpr int kPanelX = 320;
 constexpr int kPanelY = 0;
@@ -761,40 +766,30 @@ void formatPanelSpeed(float speed_knots, char* out, size_t out_len) {
            static_cast<int>(lroundf(speed_knots)));
 }
 
-void drawPanelClock(bool clear_background) {
-  const uint16_t bg = radar::kColorBackground;
-  const uint16_t yellow = tft.color565(255, 225, 0);
-  if (clear_background) {
-    tft.fillRect(kPanelX + 3, 256, kPanelWidth - 6, 60, bg);
+void ensurePanelSprites() {
+  if (!s_panel_row_ready) {
+    s_panel_row.setColorDepth(8);
+    s_panel_row_ready = s_panel_row.createSprite(kPanelWidth - 6, 18);
+    if (!s_panel_row_ready) {
+      Serial.println("radar: panel row sprite alloc failed");
+    }
   }
-
-  char clock_text[12] = "--:--:--";
-  const time_t now = time(nullptr);
-  struct tm local_time = {};
-  if (now > 1700000000 && localtime_r(&now, &local_time) != nullptr) {
-    strftime(clock_text, sizeof(clock_text), "%H:%M:%S", &local_time);
+  if (!s_panel_clock_ready) {
+    s_panel_clock.setColorDepth(8);
+    s_panel_clock_ready = s_panel_clock.createSprite(kPanelWidth - 6, 60);
+    if (!s_panel_clock_ready) {
+      Serial.println("radar: panel clock sprite alloc failed");
+    }
   }
-  s_panel_clock_second = now;
-
-  tft.setFont(&fonts::Font0);
-  tft.setTextSize(1);
-  tft.setTextDatum(textdatum_t::top_center);
-  tft.setTextColor(radar::kColorGrid, bg);
-  tft.drawString("LOCAL TIME", kPanelX + kPanelWidth / 2, 258);
-
-  tft.setFont(&fonts::Font4);
-  tft.setTextDatum(textdatum_t::top_center);
-  tft.setTextColor(yellow, bg);
-  tft.drawString(clock_text, kPanelX + kPanelWidth / 2, 275);
 }
 
-void drawInfoPanel() {
+void drawPanelStatic() {
+  if (s_panel_static_drawn) {
+    return;
+  }
+
   const uint16_t bg = radar::kColorBackground;
   const uint16_t green = tft.color565(35, 220, 80);
-  const uint16_t cyan = tft.color565(70, 225, 255);
-  const uint16_t yellow = tft.color565(255, 225, 0);
-  const uint16_t white = radar::kColorLabel;
-
   tft.fillRect(kPanelX, kPanelY, kPanelWidth, kPanelHeight, bg);
   tft.drawRect(kPanelX + 1, kPanelY + 1, kPanelWidth - 2,
                kPanelHeight - 2, green);
@@ -813,6 +808,61 @@ void drawInfoPanel() {
   tft.drawString("ALT", kPanelX + 91, 27);
   tft.drawString("KT", kPanelX + 130, 27);
   tft.drawFastHLine(kPanelX + 4, 37, kPanelWidth - 8, green);
+  tft.drawFastHLine(kPanelX + 4, 224, kPanelWidth - 8, green);
+  tft.drawFastHLine(kPanelX + 4, 251, kPanelWidth - 8, green);
+  s_panel_static_drawn = true;
+}
+
+void drawPanelClock(bool clear_background) {
+  const uint16_t bg = radar::kColorBackground;
+  const uint16_t yellow = tft.color565(255, 225, 0);
+
+  char clock_text[12] = "--:--:--";
+  const time_t now = time(nullptr);
+  struct tm local_time = {};
+  if (now > 1700000000 && localtime_r(&now, &local_time) != nullptr) {
+    strftime(clock_text, sizeof(clock_text), "%H:%M:%S", &local_time);
+  }
+  s_panel_clock_second = now;
+
+  if (s_panel_clock_ready) {
+    s_panel_clock.fillSprite(bg);
+    s_panel_clock.setFont(&fonts::Font0);
+    s_panel_clock.setTextSize(1);
+    s_panel_clock.setTextDatum(textdatum_t::top_center);
+    s_panel_clock.setTextColor(radar::kColorGrid, bg);
+    s_panel_clock.drawString("LOCAL TIME", s_panel_clock.width() / 2, 2);
+    s_panel_clock.setFont(&fonts::Font4);
+    s_panel_clock.setTextDatum(textdatum_t::top_center);
+    s_panel_clock.setTextColor(yellow, bg);
+    s_panel_clock.drawString(clock_text, s_panel_clock.width() / 2, 19);
+    s_panel_clock.pushSprite(kPanelX + 3, 256);
+    return;
+  }
+
+  if (clear_background) {
+    tft.fillRect(kPanelX + 3, 256, kPanelWidth - 6, 60, bg);
+  }
+  tft.setFont(&fonts::Font0);
+  tft.setTextSize(1);
+  tft.setTextDatum(textdatum_t::top_center);
+  tft.setTextColor(radar::kColorGrid, bg);
+  tft.drawString("LOCAL TIME", kPanelX + kPanelWidth / 2, 258);
+  tft.setFont(&fonts::Font4);
+  tft.setTextDatum(textdatum_t::top_center);
+  tft.setTextColor(yellow, bg);
+  tft.drawString(clock_text, kPanelX + kPanelWidth / 2, 275);
+}
+
+void drawInfoPanel() {
+  const uint16_t bg = radar::kColorBackground;
+  const uint16_t green = tft.color565(35, 220, 80);
+  const uint16_t cyan = tft.color565(70, 225, 255);
+  const uint16_t yellow = tft.color565(255, 225, 0);
+  const uint16_t white = radar::kColorLabel;
+
+  ensurePanelSprites();
+  drawPanelStatic();
 
   const size_t aircraft_count = services::adsb::aircraftCount();
   const services::adsb::Aircraft* planes = services::adsb::aircraftList();
@@ -833,40 +883,62 @@ void drawInfoPanel() {
   const size_t first = s_panel_page * kPanelRowsPerPage;
   const size_t end = std::min(aircraft_count, first + kPanelRowsPerPage);
 
-  tft.setFont(&fonts::Font0);
-  tft.setTextSize(1);
   for (size_t row = 0; row < kPanelRowsPerPage; ++row) {
     const int y = 42 + static_cast<int>(row) * 18;
-    if (first + row >= end) {
-      continue;
+    if (s_panel_row_ready) {
+      s_panel_row.fillSprite(bg);
+      s_panel_row.setFont(&fonts::Font0);
+      s_panel_row.setTextSize(1);
+      s_panel_row.setTextDatum(textdatum_t::top_left);
+    } else {
+      tft.fillRect(kPanelX + 3, y, kPanelWidth - 6, 18, bg);
+      tft.setFont(&fonts::Font0);
+      tft.setTextSize(1);
+      tft.setTextDatum(textdatum_t::top_left);
     }
 
-    const PanelAircraftItem& item = items[first + row];
-    const services::adsb::Aircraft& plane = planes[item.index];
-    char distance[8];
-    char altitude[8];
-    char speed[6];
-    formatPanelDistance(item.distance_km, distance, sizeof(distance));
-    formatPanelAltitude(plane.alt, altitude, sizeof(altitude));
-    formatPanelSpeed(plane.gs_knots, speed, sizeof(speed));
+    if (first + row < end) {
+      const PanelAircraftItem& item = items[first + row];
+      const services::adsb::Aircraft& plane = planes[item.index];
+      char distance[8];
+      char altitude[8];
+      char speed[6];
+      formatPanelDistance(item.distance_km, distance, sizeof(distance));
+      formatPanelAltitude(plane.alt, altitude, sizeof(altitude));
+      formatPanelSpeed(plane.gs_knots, speed, sizeof(speed));
+      const uint16_t indicator =
+          isInsideOuterRingKm(item.distance_km) ? green : cyan;
 
-    tft.setTextDatum(textdatum_t::top_left);
-    tft.setTextColor(yellow, bg);
-    tft.drawString(plane.callsign[0] == '\0' ? "--------" : plane.callsign,
-                   kPanelX + 5, y);
-    tft.setTextColor(cyan, bg);
-    tft.drawString(distance, kPanelX + 58, y);
-    tft.setTextColor(white, bg);
-    tft.drawString(altitude, kPanelX + 87, y);
-    tft.setTextColor(cyan, bg);
-    tft.drawString(speed, kPanelX + 132, y);
+      if (s_panel_row_ready) {
+        s_panel_row.setTextColor(yellow, bg);
+        s_panel_row.drawString(
+            plane.callsign[0] == '\0' ? "--------" : plane.callsign, 2, 0);
+        s_panel_row.setTextColor(cyan, bg);
+        s_panel_row.drawString(distance, 55, 0);
+        s_panel_row.setTextColor(white, bg);
+        s_panel_row.drawString(altitude, 84, 0);
+        s_panel_row.setTextColor(cyan, bg);
+        s_panel_row.drawString(speed, 129, 0);
+        s_panel_row.fillCircle(150, 4, 2, indicator);
+      } else {
+        tft.setTextColor(yellow, bg);
+        tft.drawString(plane.callsign[0] == '\0' ? "--------" : plane.callsign,
+                       kPanelX + 5, y);
+        tft.setTextColor(cyan, bg);
+        tft.drawString(distance, kPanelX + 58, y);
+        tft.setTextColor(white, bg);
+        tft.drawString(altitude, kPanelX + 87, y);
+        tft.setTextColor(cyan, bg);
+        tft.drawString(speed, kPanelX + 132, y);
+        tft.fillCircle(kPanelX + 153, y + 4, 2, indicator);
+      }
+    }
 
-    const uint16_t indicator =
-        isInsideOuterRingKm(item.distance_km) ? green : cyan;
-    tft.fillCircle(kPanelX + 153, y + 4, 2, indicator);
+    if (s_panel_row_ready) {
+      s_panel_row.pushSprite(kPanelX + 3, y);
+    }
   }
 
-  tft.drawFastHLine(kPanelX + 4, 224, kPanelWidth - 8, green);
   char range_text[12];
   radar::formatCurrentRing3Label(range_text, sizeof(range_text));
 
@@ -882,10 +954,22 @@ void drawInfoPanel() {
              range_text,
              static_cast<unsigned>(aircraft_count));
   }
-  tft.setTextDatum(textdatum_t::top_center);
-  tft.setTextColor(green, bg);
-  tft.drawString(page_text, kPanelX + kPanelWidth / 2, 232);
-  tft.drawFastHLine(kPanelX + 4, 251, kPanelWidth - 8, green);
+  if (s_panel_row_ready) {
+    s_panel_row.fillSprite(bg);
+    s_panel_row.setFont(&fonts::Font0);
+    s_panel_row.setTextSize(1);
+    s_panel_row.setTextDatum(textdatum_t::top_center);
+    s_panel_row.setTextColor(green, bg);
+    s_panel_row.drawString(page_text, s_panel_row.width() / 2, 2);
+    s_panel_row.pushSprite(kPanelX + 3, 230);
+  } else {
+    tft.fillRect(kPanelX + 3, 230, kPanelWidth - 6, 18, bg);
+    tft.setFont(&fonts::Font0);
+    tft.setTextSize(1);
+    tft.setTextDatum(textdatum_t::top_center);
+    tft.setTextColor(green, bg);
+    tft.drawString(page_text, kPanelX + kPanelWidth / 2, 232);
+  }
 
   drawPanelClock(false);
 }

@@ -43,7 +43,8 @@ The right panel lists up to 10 aircraft per page, nearest first, with callsign,
 distance, altitude, speed, and an on-radar/off-radar indicator. The status strip
 keeps the active radar range visible. Additional pages advance automatically
 every 5 seconds. A network-synchronized local clock is shown at the bottom; its
-POSIX timezone is configured with `kTimeZone`.
+POSIX timezone is configured with `kTimeZone`. Dynamic rows and the clock are
+composed off-screen so ADS-B refreshes do not visibly clear the whole panel.
 
 ## Controls (BOOT, GPIO 9, active LOW)
 
