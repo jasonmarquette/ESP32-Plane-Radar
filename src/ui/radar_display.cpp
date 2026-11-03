@@ -186,6 +186,9 @@ void initTagLabelMetrics() {
   const int target = radar::kAircraftTagLabelHeightPx;
   if (displayFontIsSmooth()) {
     s_tag_use_vlw = true;
+    // Status screens and the info panel can leave a bitmap font on tft.
+    // Measure the same smooth font that aircraft tags use on the frame sprite.
+    displayFontEnsureLoaded(tft);
     s_tag_vlw_size = findVlwSizeForHeight(target);
   } else {
     const lgfx::GFXfont* tag_candidates[] = {&fonts::FreeSansBold12pt7b,
