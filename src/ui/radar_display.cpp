@@ -398,6 +398,7 @@ void applyTagStyle() {
     displayFontSetSmoothSize(*s_draw, s_tag_vlw_size);
   } else {
     displayFontSetBitmap(*s_draw, s_tag_gfx);
+    s_draw->setTextSize(0.8f);
   }
 }
 
