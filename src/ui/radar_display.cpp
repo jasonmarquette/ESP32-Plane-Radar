@@ -45,6 +45,7 @@ bool s_scale_use_vlw = false;
 float s_cardinal_vlw_size = 0.56f;
 float s_scale_vlw_size = 0.50f;
 float s_tag_vlw_size = 0.56f;
+float s_tag_bitmap_size = 1.0f;
 const lgfx::GFXfont* s_cardinal_gfx = &fonts::FreeSansBold12pt7b;
 const lgfx::GFXfont* s_scale_gfx = &fonts::FreeSansBold9pt7b;
 const lgfx::GFXfont* s_tag_gfx = &fonts::FreeSansBold12pt7b;
@@ -185,18 +186,26 @@ void initTagLabelMetrics() {
 
   const int target = radar::kAircraftTagLabelHeightPx;
   if (displayFontIsSmooth()) {
-    s_tag_use_vlw = true;
     // Status screens and the info panel can leave a bitmap font on tft.
     // Measure the same smooth font that aircraft tags use on the frame sprite.
-    displayFontEnsureLoaded(tft);
+    s_tag_use_vlw = displayFontEnsureLoaded(tft);
+  }
+  if (s_tag_use_vlw) {
     s_tag_vlw_size = findVlwSizeForHeight(target);
   } else {
     const lgfx::GFXfont* tag_candidates[] = {&fonts::FreeSansBold12pt7b,
                                                &fonts::FreeSansBold9pt7b};
     s_tag_gfx = pickGfxFontClosest(target, tag_candidates, 2);
+    // Use the requested height instead of a fixed 0.8 scale.
+    const int base_height = measureGfxHeight(*s_tag_gfx);
+    s_tag_bitmap_size = static_cast<float>(target + 0.5f) /
+                        std::max(1, base_height);
     s_tag_use_vlw = false;
   }
 
+  Serial.printf("Aircraft tags: target=%d px, font=%s, scale=%.4f\n",
+                target, s_tag_use_vlw ? "smooth" : "bitmap",
+                s_tag_use_vlw ? s_tag_vlw_size : s_tag_bitmap_size);
   s_tag_label_metrics_ready = true;
 }
 
@@ -401,7 +410,7 @@ void applyTagStyle() {
     displayFontSetSmoothSize(*s_draw, s_tag_vlw_size);
   } else {
     displayFontSetBitmap(*s_draw, s_tag_gfx);
-    s_draw->setTextSize(0.8f);
+    s_draw->setTextSize(s_tag_bitmap_size);
   }
 }
 
